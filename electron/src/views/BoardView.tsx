@@ -137,7 +137,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ activePatient }) => {
   };
 
   // Delete task
-  const handleDeleteTask = async (id: number) => {
+  const handleDeleteTask = async (id: number | string) => {
     if (!window.confirm('Are you sure you want to delete this clinical ticket?')) return;
     setTasks((prev) => prev.filter((t) => t.id !== id));
     try {

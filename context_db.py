@@ -28,6 +28,9 @@ _pool: Optional[Queue] = None
 
 
 def get_context_db_path() -> Path:
+    override = os.getenv("AGENT_D_CONTEXT_DB")
+    if override:
+        return Path(override)
     base = os.getenv("LOCALAPPDATA") or str(Path.home() / ".agentd")
     p = Path(base) / "AgentD"
     p.mkdir(parents=True, exist_ok=True)
@@ -53,6 +56,18 @@ def init_context_pool():
         _pool = Queue(maxsize=POOL_SIZE)
         for _ in range(POOL_SIZE):
             _pool.put(_create_connection())
+
+
+def reset_pool():
+    global _pool
+    if _pool is not None:
+        while not _pool.empty():
+            try:
+                conn = _pool.get_nowait()
+                conn.close()
+            except Exception:
+                pass
+        _pool = None
 
 
 class ContextConnectionContext:
@@ -299,6 +314,47 @@ def record_audit_event(
             ),
         )
         conn.commit()
+
+
+def list_audit_events(
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Retrieves immutable audit event records."""
+    with get_context_db() as conn:
+        query = "SELECT * FROM audit_events"
+        clauses = []
+        params = []
+        if entity_type:
+            clauses.append("entity_type = ?")
+            params.append(entity_type)
+        if entity_id:
+            clauses.append("entity_id = ?")
+            params.append(str(entity_id))
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        events = []
+        for r in rows:
+            ev = dict(r)
+            if ev.get("details"):
+                try:
+                    ev["details"] = json.loads(ev["details"])
+                except Exception:
+                    pass
+            events.append(ev)
+        return events
+
+
+def get_audit_events(entity_type: str, entity_id: str) -> List[Dict[str, Any]]:
+    """Alias for list_audit_events for specific entity."""
+    return list_audit_events(entity_type=entity_type, entity_id=entity_id)
 
 
 # ── Patient Management & Alias Generation ────────────────────────────────────
@@ -888,3 +944,645 @@ def delete_log_entry(entry_id: str) -> bool:
     if success:
         record_audit_event("log_entry", entry_id, "delete", "doctor")
     return success
+
+
+# ── Chat Sessions & Clinical Conversation History ────────────────────────────
+
+def create_chat_session(title: str = "Clinical Consultation", patient_id: Optional[str] = None) -> Dict[str, Any]:
+    """Creates a new patient-scoped or general practice chat session."""
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_sessions (id, patient_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (session_id, patient_id, title.strip(), now, now),
+        )
+        conn.commit()
+
+    return {
+        "id": session_id,
+        "patient_id": patient_id,
+        "title": title.strip(),
+        "created_at": now,
+        "updated_at": now,
+        "message_count": 0,
+    }
+
+
+def list_chat_sessions(patient_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """Lists chat sessions, optionally scoped by patient chart."""
+    with get_context_db() as conn:
+        if patient_id:
+            rows = conn.execute(
+                """
+                SELECT s.*, (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) as message_count
+                FROM chat_sessions s
+                WHERE s.patient_id = ?
+                ORDER BY s.updated_at DESC
+                LIMIT ?
+                """,
+                (patient_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT s.*, (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) as message_count
+                FROM chat_sessions s
+                ORDER BY s.updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [dict(r) for r in rows]
+
+
+def get_chat_session(session_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves session details and chronological message history."""
+    with get_context_db() as conn:
+        s_row = conn.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,)).fetchone()
+        if not s_row:
+            return None
+
+        session = dict(s_row)
+        m_rows = conn.execute(
+            """
+            SELECT id, session_id, role, content, model_name, tokens_used, tool_calls, created_at
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
+            """,
+            (session_id,),
+        ).fetchall()
+
+        messages = []
+        for mr in m_rows:
+            item = dict(mr)
+            try:
+                item["content"] = crypto_utils.decrypt_text(item["content"])
+            except Exception:
+                pass
+            try:
+                item["tool_calls"] = json.loads(item["tool_calls"]) if item.get("tool_calls") else []
+            except Exception:
+                item["tool_calls"] = []
+            messages.append(item)
+
+        session["messages"] = messages
+        return session
+
+
+def delete_chat_session(session_id: str) -> bool:
+    """Deletes a chat session and all cascading messages."""
+    with get_context_db() as conn:
+        cur = conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def add_chat_message(
+    session_id: str,
+    role: str,
+    content: str,
+    model_name: Optional[str] = None,
+    tokens_used: int = 0,
+    tool_calls: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    """Appends an encrypted user or assistant turn to a chat session."""
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    encrypted_content = crypto_utils.encrypt_text(content.strip())
+    tool_calls_json = json.dumps(tool_calls or [])
+
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO chat_messages (id, session_id, role, content, model_name, tokens_used, tool_calls, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (msg_id, session_id, role, encrypted_content, model_name, tokens_used, tool_calls_json, now),
+        )
+        conn.execute(
+            "UPDATE chat_sessions SET updated_at = ? WHERE id = ?",
+            (now, session_id),
+        )
+        conn.commit()
+
+    return {
+        "id": msg_id,
+        "session_id": session_id,
+        "role": role,
+        "content": content.strip(),
+        "model_name": model_name,
+        "tokens_used": tokens_used,
+        "tool_calls": tool_calls or [],
+        "created_at": now,
+    }
+
+
+# ── Practice Appointments & Scheduling ───────────────────────────────────────
+
+def list_appointments(date_str: Optional[str] = None, patient_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Lists appointments with joined patient clinical aliases."""
+    with get_context_db() as conn:
+        query = """
+            SELECT a.*, p.llm_alias as patient_alias, p.display_name as encrypted_display_name
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.id
+        """
+        params = []
+        conditions = []
+
+        if date_str:
+            conditions.append("DATE(a.scheduled_time) = ?")
+            params.append(date_str)
+        if patient_id:
+            conditions.append("a.patient_id = ?")
+            params.append(patient_id)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY a.scheduled_time ASC"
+
+        rows = conn.execute(query, tuple(params)).fetchall()
+        results = []
+        for r in rows:
+            item = dict(r)
+            try:
+                item["patient_name"] = crypto_utils.decrypt_text(item["encrypted_display_name"])
+            except Exception:
+                item["patient_name"] = item.get("patient_alias", "Patient")
+            del item["encrypted_display_name"]
+            results.append(item)
+        return results
+
+
+def create_appointment(
+    patient_id: str,
+    scheduled_time: str,
+    duration_minutes: int = 15,
+    appointment_type: str = "follow_up",
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Schedules a new clinical appointment."""
+    app_id = str(uuid.uuid4())
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO appointments (id, patient_id, scheduled_time, duration_minutes, appointment_type, reason, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
+            """,
+            (app_id, patient_id, scheduled_time, duration_minutes, appointment_type, reason),
+        )
+        conn.commit()
+
+    return {
+        "id": app_id,
+        "patient_id": patient_id,
+        "scheduled_time": scheduled_time,
+        "duration_minutes": duration_minutes,
+        "appointment_type": appointment_type,
+        "reason": reason,
+        "status": "scheduled",
+    }
+
+
+def update_appointment(appointment_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Updates appointment status, scheduled time, duration, or reason."""
+    allowed = {"scheduled_time", "duration_minutes", "appointment_type", "reason", "status"}
+    filtered = {k: v for k, v in updates.items() if k in allowed}
+    if not filtered:
+        return None
+
+    set_clauses = [f"{k} = ?" for k in filtered.keys()]
+    params = list(filtered.values())
+    params.append(appointment_id)
+
+    with get_context_db() as conn:
+        conn.execute(
+            f"UPDATE appointments SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM appointments WHERE id = ?", (appointment_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def delete_appointment(appointment_id: str) -> bool:
+    """Removes an appointment from the schedule."""
+    with get_context_db() as conn:
+        cur = conn.execute("DELETE FROM appointments WHERE id = ?", (appointment_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_practice_summary_stats() -> Dict[str, Any]:
+    """Computes real-time practice stats from context.db for dashboard and prompt context."""
+    from datetime import date
+    today = date.today().isoformat()
+
+    with get_context_db() as conn:
+        total_patients = conn.execute("SELECT COUNT(*) FROM patients WHERE status = 'active'").fetchone()[0]
+        today_appts = conn.execute("SELECT COUNT(*) FROM appointments WHERE DATE(scheduled_time) = ?", (today,)).fetchone()[0]
+        unreviewed_artifacts = conn.execute("SELECT COUNT(*) FROM artifacts WHERE needs_review = 1").fetchone()[0]
+        open_tickets = conn.execute("SELECT COUNT(*) FROM tickets WHERE status != 'done'").fetchone()[0]
+
+        # Get next appointment today
+        next_appt = conn.execute(
+            """
+            SELECT a.*, p.llm_alias
+            FROM appointments a
+            JOIN patients p ON a.patient_id = p.id
+            WHERE DATE(a.scheduled_time) = ? AND a.status = 'scheduled'
+            ORDER BY a.scheduled_time ASC
+            LIMIT 1
+            """,
+            (today,),
+        ).fetchone()
+
+        next_info = None
+        if next_appt:
+            next_info = {
+                "alias": next_appt["llm_alias"],
+                "time": next_appt["scheduled_time"],
+                "reason": next_appt["reason"],
+            }
+
+        return {
+            "total_patients": total_patients,
+            "today_appointments_count": today_appts,
+            "unreviewed_artifacts_count": unreviewed_artifacts,
+            "open_tickets_count": open_tickets,
+            "next_appointment": next_info,
+        }
+
+
+# ── Clinical Tickets & Action Items (Milestone 4) ─────────────────────────────
+
+def create_ticket(
+    patient_id: Optional[str] = None,
+    title: str = "Clinical Action Item",
+    description: Optional[str] = None,
+    priority: str = "medium",
+    status: str = "todo",
+    due_date: Optional[str] = None,
+    due_time: Optional[str] = None,
+    is_reminder: int = 0,
+    visit_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Creates a new clinical action item / follow-up ticket."""
+    ticket_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    norm_status = (status or "todo").lower()
+    if norm_status == "open":
+        norm_status = "todo"
+
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO tickets (id, patient_id, visit_id, title, description, priority, status, due_date, due_time, is_reminder, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (ticket_id, patient_id, visit_id, title.strip(), description or "", priority.lower(), norm_status, due_date, due_time, is_reminder, now, now),
+        )
+        conn.commit()
+
+    record_audit_event("ticket", ticket_id, "created", details={"title": title, "patient_id": patient_id})
+
+    return {
+        "id": ticket_id,
+        "patient_id": patient_id,
+        "visit_id": visit_id,
+        "title": title.strip(),
+        "description": description or "",
+        "priority": priority.lower(),
+        "status": norm_status,
+        "due_date": due_date,
+        "due_time": due_time,
+        "is_reminder": is_reminder,
+        "created_at": now,
+    }
+
+
+def list_tickets(
+    patient_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """Lists clinical tickets joined with patient aliases."""
+    with get_context_db() as conn:
+        query = """
+            SELECT t.*, p.llm_alias as patient_alias, p.display_name as encrypted_display_name
+            FROM tickets t
+            LEFT JOIN patients p ON t.patient_id = p.id
+        """
+        clauses = []
+        params = []
+        if patient_id:
+            clauses.append("t.patient_id = ?")
+            params.append(patient_id)
+        if status and status != "all":
+            if status == "open":
+                clauses.append("t.status != 'done'")
+            else:
+                clauses.append("t.status = ?")
+                params.append(status)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY CASE t.priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'med' THEN 3 WHEN 'medium' THEN 3 ELSE 4 END ASC, t.created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        tickets = []
+        for r in rows:
+            t = dict(r)
+            if t.get("encrypted_display_name"):
+                try:
+                    t["patient_display_name"] = crypto_utils.decrypt_text(t["encrypted_display_name"])
+                except Exception:
+                    t["patient_display_name"] = t.get("patient_alias", "PT-XXXX")
+            tickets.append(t)
+        return tickets
+
+
+def get_ticket(ticket_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves single ticket details."""
+    with get_context_db() as conn:
+        row = conn.execute(
+            """
+            SELECT t.*, p.llm_alias as patient_alias
+            FROM tickets t
+            LEFT JOIN patients p ON t.patient_id = p.id
+            WHERE t.id = ?
+            """,
+            (ticket_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_ticket(ticket_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Updates status, priority, title, description, or due_date of a ticket."""
+    allowed = {"title", "description", "priority", "status", "due_date", "due_time", "is_reminder"}
+    filtered = {k: v for k, v in updates.items() if k in allowed}
+    if not filtered:
+        return None
+
+    now = datetime.now(timezone.utc).isoformat()
+    filtered["updated_at"] = now
+
+    set_clauses = [f"{k} = ?" for k in filtered.keys()]
+    params = list(filtered.values())
+    params.append(ticket_id)
+
+    with get_context_db() as conn:
+        conn.execute(
+            f"UPDATE tickets SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+    record_audit_event("ticket", ticket_id, "updated", details=filtered)
+    return get_ticket(ticket_id)
+
+
+def delete_ticket(ticket_id: str) -> bool:
+    """Removes a ticket from context.db."""
+    with get_context_db() as conn:
+        cur = conn.execute("DELETE FROM tickets WHERE id = ?", (ticket_id,))
+        conn.commit()
+        ok = cur.rowcount > 0
+
+    if ok:
+        record_audit_event("ticket", ticket_id, "deleted")
+    return ok
+
+
+# ── Safety Gate & Proposal Queue (Milestone 4) ────────────────────────────────
+
+def create_proposal(
+    patient_id: str,
+    proposal_type: str,
+    payload: Dict[str, Any],
+    rationale: str,
+    visit_id: Optional[str] = None,
+    diff: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Creates a pending proposal awaiting doctor signature."""
+    proposal_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    payload_json = json.dumps(payload or {})
+    diff_json = json.dumps(diff or {})
+
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO proposals (id, patient_id, visit_id, proposal_type, payload, diff, rationale, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (proposal_id, patient_id, visit_id, proposal_type, payload_json, diff_json, rationale.strip(), now),
+        )
+        conn.commit()
+
+    record_audit_event(
+        entity_type="proposal",
+        entity_id=proposal_id,
+        action="created",
+        details={"type": proposal_type, "patient_id": patient_id},
+    )
+
+    return {
+        "id": proposal_id,
+        "patient_id": patient_id,
+        "visit_id": visit_id,
+        "proposal_type": proposal_type,
+        "payload": payload,
+        "diff": diff or {},
+        "rationale": rationale.strip(),
+        "status": "pending",
+        "created_at": now,
+    }
+
+
+def list_proposals(
+    patient_id: Optional[str] = None,
+    status: Optional[str] = "pending",
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Lists proposals awaiting doctor approval."""
+    with get_context_db() as conn:
+        query = """
+            SELECT pr.*, p.llm_alias as patient_alias, p.display_name as encrypted_display_name
+            FROM proposals pr
+            JOIN patients p ON pr.patient_id = p.id
+        """
+        clauses = []
+        params = []
+        if patient_id:
+            clauses.append("pr.patient_id = ?")
+            params.append(patient_id)
+        if status and status != "all":
+            clauses.append("pr.status = ?")
+            params.append(status)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY pr.created_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        proposals = []
+        for r in rows:
+            p = dict(r)
+            if p.get("payload"):
+                try:
+                    p["payload"] = json.loads(p["payload"])
+                except Exception:
+                    pass
+            if p.get("diff"):
+                try:
+                    p["diff"] = json.loads(p["diff"])
+                except Exception:
+                    pass
+            proposals.append(p)
+        return proposals
+
+
+def get_proposal(proposal_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves detailed proposal object."""
+    with get_context_db() as conn:
+        row = conn.execute(
+            """
+            SELECT pr.*, p.llm_alias as patient_alias
+            FROM proposals pr
+            JOIN patients p ON pr.patient_id = p.id
+            WHERE pr.id = ?
+            """,
+            (proposal_id,),
+        ).fetchone()
+        if not row:
+            return None
+        p = dict(row)
+        if p.get("payload"):
+            try:
+                p["payload"] = json.loads(p["payload"])
+            except Exception:
+                pass
+        if p.get("diff"):
+            try:
+                p["diff"] = json.loads(p["diff"])
+            except Exception:
+                pass
+        return p
+
+
+def accept_proposal(proposal_id: str) -> Dict[str, Any]:
+    """
+    Doctor-in-Control Approval:
+    Applies the proposed modification directly to live clinical records
+    and marks proposal as accepted.
+    """
+    with get_context_db() as conn:
+        row = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+        if not row:
+            raise ValueError("Proposal not found")
+        p = dict(row)
+        if p["status"] != "pending":
+            return {"success": False, "status": p["status"], "error": f"Proposal already {p['status']}"}
+
+        patient_id = p["patient_id"]
+        prop_type = p["proposal_type"]
+        payload = json.loads(p["payload"]) if isinstance(p["payload"], str) else (p["payload"] or {})
+        rationale = p["rationale"]
+
+    result_detail = {}
+    if prop_type in ("artifact_update", "artifact"):
+        current_art = get_patient_artifact(patient_id) or {}
+        merged = dict(current_art)
+        for k, v in payload.items():
+            if k in ("summary", "active_issues", "medications", "watch_for", "follow_ups"):
+                merged[k] = v
+        new_art = update_patient_artifact(
+            patient_id,
+            merged,
+            author_type="copilot_proposal",
+            change_summary=f"Approved proposal: {rationale}",
+            proposal_id=proposal_id,
+        )
+        result_detail["artifact_version"] = new_art.get("current_version")
+
+    elif prop_type in ("log_entry", "observation"):
+        entry = create_log_entry(
+            patient_id=patient_id,
+            entry_type=payload.get("entry_type", "observation"),
+            content=payload.get("content", ""),
+            metadata=payload.get("metadata"),
+            entry_date=payload.get("entry_date"),
+        )
+        result_detail["log_entry_id"] = entry.get("id")
+
+    elif prop_type in ("ticket", "task", "reminder"):
+        t = create_ticket(
+            patient_id=patient_id,
+            title=payload.get("title", "Clinical Action Item"),
+            description=payload.get("description", rationale),
+            priority=payload.get("priority", "medium"),
+            due_date=payload.get("due_date"),
+            is_reminder=1 if prop_type == "reminder" else 0,
+        )
+        result_detail["ticket_id"] = t.get("id")
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_context_db() as conn:
+        conn.execute(
+            "UPDATE proposals SET status = 'accepted', resolved_at = ? WHERE id = ?",
+            (now, proposal_id),
+        )
+        conn.commit()
+
+    record_audit_event(
+        entity_type="proposal",
+        entity_id=proposal_id,
+        action="accepted",
+        details={"type": prop_type, "result": result_detail},
+    )
+
+    return {
+        "success": True,
+        "proposal_id": proposal_id,
+        "status": "accepted",
+        "result": result_detail,
+    }
+
+
+def reject_proposal(proposal_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
+    """Doctor-in-Control Rejection: Marks proposal rejected without modifying live records."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_context_db() as conn:
+        row = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+        if not row:
+            raise ValueError("Proposal not found")
+        conn.execute(
+            "UPDATE proposals SET status = 'rejected', resolved_at = ? WHERE id = ?",
+            (now, proposal_id),
+        )
+        conn.commit()
+
+    record_audit_event(
+        entity_type="proposal",
+        entity_id=proposal_id,
+        action="rejected",
+        details={"reason": reason or "Rejected by physician"},
+    )
+
+    return {
+        "success": True,
+        "proposal_id": proposal_id,
+        "status": "rejected",
+    }

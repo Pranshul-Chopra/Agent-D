@@ -86,6 +86,107 @@ class BridgeService {
     return response.json();
   }
 
+  public streamClinicalChat(
+    payload: { message: string; session_id?: string; patient_id?: string },
+    callbacks: {
+      onStart?: (sessionId: string) => void;
+      onToken?: (token: string, sessionId: string) => void;
+      onDone?: (fullText: string, sessionId: string) => void;
+      onError?: (err: string) => void;
+    }
+  ): () => void {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const token = await this.getAuthToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(`${this.apiBase}/api/v1/chat/stream`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          let errMsg = `Request failed: ${res.status}`;
+          try {
+            const parsed = JSON.parse(errText);
+            if (parsed.error) errMsg = parsed.error;
+          } catch (_) {}
+          callbacks.onError?.(errMsg);
+          return;
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) {
+          callbacks.onError?.('Streaming not supported in this runtime.');
+          return;
+        }
+
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let currentSessionId = payload.session_id || '';
+        let accumulatedText = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const jsonStr = trimmed.slice(5).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const data = JSON.parse(jsonStr);
+              if (data.error) {
+                callbacks.onError?.(data.error);
+                return;
+              }
+              if (data.event === 'start' && data.session_id) {
+                currentSessionId = data.session_id;
+                callbacks.onStart?.(data.session_id);
+              } else if (data.event === 'token' && data.token) {
+                accumulatedText += data.token;
+                callbacks.onToken?.(data.token, data.session_id || currentSessionId);
+              } else if (data.event === 'done') {
+                const finalText = data.content !== undefined ? data.content : accumulatedText;
+                callbacks.onDone?.(finalText, data.session_id || currentSessionId);
+                return;
+              }
+            } catch (_) {
+              // Ignore partial chunk parsing
+            }
+          }
+        }
+
+        callbacks.onDone?.(accumulatedText, currentSessionId);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          callbacks.onError?.(err.message || 'Stream connection error');
+        }
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
+  }
+
+
   // ── Data API Plane ─────────────────────────────────────────────────────────
   public api = {
     ping: () => this.request<{ app: string; status: string }>('/api/ping'),
@@ -208,6 +309,75 @@ class BridgeService {
     getProjectTasks: (id: number) =>
       this.request<{ tasks: Task[] }>(`/api/projects/${id}/tasks`),
 
+    // Clinical Tickets (Milestone 4)
+    listTickets: (params?: { patient_id?: string; status?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.patient_id) q.set('patient_id', params.patient_id);
+      if (params?.status) q.set('status', params.status);
+      const qs = q.toString() ? `?${q.toString()}` : '';
+      return this.request<{ tickets: any[]; count: number }>(`/api/v1/tickets${qs}`);
+    },
+    createTicket: (payload: {
+      patient_id?: string;
+      title: string;
+      description?: string;
+      priority?: string;
+      status?: string;
+      due_date?: string;
+      due_time?: string;
+      is_reminder?: number;
+      visit_id?: string;
+    }) =>
+      this.request<{ ticket: any }>('/api/v1/tickets', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getTicket: (id: string) => this.request<{ ticket: any }>(`/api/v1/tickets/${id}`),
+    updateTicket: (id: string, updates: Record<string, any>) =>
+      this.request<{ ticket: any }>(`/api/v1/tickets/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      }),
+    deleteTicket: (id: string) =>
+      this.request<{ status: string; id: string }>(`/api/v1/tickets/${id}`, {
+        method: 'DELETE',
+      }),
+
+    // Safety Gate & Proposal Queue (Milestone 4)
+    listProposals: (params?: { patient_id?: string; status?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.patient_id) q.set('patient_id', params.patient_id);
+      if (params?.status) q.set('status', params.status);
+      const qs = q.toString() ? `?${q.toString()}` : '';
+      return this.request<{ proposals: any[]; count: number }>(`/api/v1/proposals${qs}`);
+    },
+    createProposal: (payload: {
+      patient_id: string;
+      proposal_type: string;
+      payload: any;
+      rationale: string;
+      visit_id?: string;
+      diff?: any;
+    }) =>
+      this.request<{ proposal: any }>('/api/v1/proposals', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getProposal: (id: string) => this.request<{ proposal: any }>(`/api/v1/proposals/${id}`),
+    acceptProposal: (id: string) =>
+      this.request<{ success: boolean; proposal_id: string; status: string; result?: any }>(
+        `/api/v1/proposals/${id}/accept`,
+        { method: 'POST' }
+      ),
+    rejectProposal: (id: string, reason?: string) =>
+      this.request<{ success: boolean; proposal_id: string; status: string }>(
+        `/api/v1/proposals/${id}/reject`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }
+      ),
+
     // Tasks / Kanban Tickets
     getTasks: (projectId?: number, status?: string) => {
       const params = new URLSearchParams();
@@ -223,14 +393,14 @@ class BridgeService {
       });
       return res.task || res;
     },
-    updateTask: async (id: number, patch: Partial<Task>): Promise<Task> => {
+    updateTask: async (id: number | string, patch: Partial<Task>): Promise<Task> => {
       const res = await this.request<any>(`/api/tasks/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
       return res.task || res;
     },
-    deleteTask: async (id: number): Promise<{ success: boolean; id: number }> => {
+    deleteTask: async (id: number | string): Promise<{ success: boolean; id: number }> => {
       const res = await this.request<any>(`/api/tasks/${id}`, {
         method: 'DELETE',
       });
@@ -282,28 +452,95 @@ class BridgeService {
         body: JSON.stringify({ query, project_id: projectId, top_k: topK }),
       }),
 
-    // AI Copilot & Conversations
-    getConversations: (projectId?: number) => {
-      const q = projectId ? `?project_id=${projectId}` : '';
-      return this.request<{ conversations: any[] }>(`/api/conversations${q}`);
+    // AI Copilot & Clinical Consultation Sessions
+    createConversation: (title?: string, patientId?: string) =>
+      this.request<{ conversation: any; session: any }>('/api/v1/chat/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title, patient_id: patientId }),
+      }),
+    createChatSession: (title?: string, patientId?: string) =>
+      this.request<{ session: any; conversation: any }>('/api/v1/chat/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title, patient_id: patientId }),
+      }),
+    getConversations: (patientId?: string) => {
+      const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+      return this.request<{ conversations: any[]; sessions: any[] }>(`/api/v1/chat/sessions${q}`);
+    },
+    listChatSessions: (patientId?: string) => {
+      const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+      return this.request<{ sessions: any[] }>(`/api/v1/chat/sessions${q}`);
     },
     getConversation: (convId: string) =>
-      this.request<{ conversation: any; messages: any[] }>(`/api/conversations/${convId}`),
+      this.request<{ conversation: any; session: any; messages: any[] }>(`/api/v1/chat/sessions/${convId}`),
+    getChatSession: (sessionId: string) =>
+      this.request<{ session: any; messages: any[] }>(`/api/v1/chat/sessions/${sessionId}`),
     deleteConversation: (convId: string) =>
-      this.request<{ status: string; id: string }>(`/api/conversations/${convId}`, {
+      this.request<{ status: string; id: string }>(`/api/v1/chat/sessions/${convId}`, {
         method: 'DELETE',
       }),
-    sendChatMessage: (payload: { message: string; conversation_id?: string; project_id?: number }) =>
+    deleteChatSession: (sessionId: string) =>
+      this.request<{ status: string; id: string }>(`/api/v1/chat/sessions/${sessionId}`, {
+        method: 'DELETE',
+      }),
+    sendChatMessage: (payload: { message: string; conversation_id?: string; session_id?: string; patient_id?: string }) =>
       this.request<{
         response: string;
         provider?: string;
         model?: string;
         conversation_id: string;
+        session_id: string;
         conversation_title: string;
         sources?: any[];
-      }>('/api/chat', {
+      }>('/api/v1/chat', {
         method: 'POST',
         body: JSON.stringify(payload),
+      }),
+    streamChat: (
+      payload: { message: string; session_id?: string; patient_id?: string },
+      callbacks: {
+        onStart?: (sessionId: string) => void;
+        onToken?: (token: string, sessionId: string) => void;
+        onDone?: (fullText: string, sessionId: string) => void;
+        onError?: (err: string) => void;
+      }
+    ) => this.streamClinicalChat(payload, callbacks),
+
+    // Practice Dashboard & Scheduling (Milestone 3)
+    getDashboardStats: () =>
+      this.request<{
+        total_patients: number;
+        today_appointments_count: number;
+        unreviewed_artifacts_count: number;
+        open_tickets_count: number;
+        next_appointment?: { alias: string; time: string; reason?: string } | null;
+      }>('/api/v1/dashboard/stats'),
+    listAppointments: (dateStr?: string, patientId?: string) => {
+      const params = new URLSearchParams();
+      if (dateStr) params.set('date', dateStr);
+      if (patientId) params.set('patient_id', patientId);
+      const q = params.toString() ? `?${params.toString()}` : '';
+      return this.request<{ appointments: any[] }>(`/api/v1/appointments${q}`);
+    },
+    createAppointment: (payload: {
+      patient_id: string;
+      scheduled_time: string;
+      duration_minutes?: number;
+      appointment_type?: string;
+      reason?: string;
+    }) =>
+      this.request<{ appointment: any }>('/api/v1/appointments', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    updateAppointment: (appointmentId: string, updates: Record<string, any>) =>
+      this.request<{ appointment: any }>(`/api/v1/appointments/${appointmentId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      }),
+    deleteAppointment: (appointmentId: string) =>
+      this.request<{ status: string; id: string }>(`/api/v1/appointments/${appointmentId}`, {
+        method: 'DELETE',
       }),
 
     // Data Studio & Analytics

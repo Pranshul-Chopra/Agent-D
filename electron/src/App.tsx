@@ -4,10 +4,8 @@ import Titlebar from './components/Titlebar';
 import Sidebar from './components/Sidebar';
 import UpdaterToast from './components/UpdaterToast';
 import CommandPalette from './components/CommandPalette';
-import PatientModal from './components/patients/PatientModal';
 import HomeView from './views/HomeView';
 import BoardView from './views/BoardView';
-import StudioView from './views/StudioView';
 import DocsView from './views/DocsView';
 import ChatView from './views/ChatView';
 import SettingsView from './views/SettingsView';
@@ -222,7 +220,6 @@ export const App: React.FC = () => {
                 activePatient={activePatient}
               />
             )}
-            {activeTab === 'dashboard' && <StudioView />}
             {activeTab === 'documents' && <DocsView activePatient={activePatient} />}
             {activeTab === 'chat' && (
               <ChatView
@@ -261,14 +258,6 @@ export const App: React.FC = () => {
             navigateWithTransition('board');
           }
         }}
-      />
-
-      {/* Patient Directory & Registration Modal */}
-      <PatientModal
-        isOpen={isPatientModalOpen}
-        onClose={() => setIsPatientModalOpen(false)}
-        onSelectPatient={(p) => setActivePatient(p)}
-        activePatientId={activePatient?.id}
       />
 
       {/* Centered What's New Dialog Box */}

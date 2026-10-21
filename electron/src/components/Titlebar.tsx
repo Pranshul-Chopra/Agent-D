@@ -12,12 +12,11 @@ interface TitlebarProps {
 }
 
 const tabTitles: Record<NavTab, string> = {
+  chat: 'Conversational Copilot',
   home: 'Clinical Dashboard',
-  board: 'Follow-ups Kanban Board',
-  dashboard: 'Practice Analytics',
   patients: 'Patients Manager',
   documents: 'Patient Artifacts',
-  chat: 'Conversational Copilot',
+  board: 'Follow-ups Kanban Board',
   settings: 'Settings & Security Vault',
 };
 

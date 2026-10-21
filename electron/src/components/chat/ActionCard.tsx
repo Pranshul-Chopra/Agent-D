@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import {
   CheckCircle2,
-  Sparkles,
-  Kanban,
   AlertCircle,
   Loader2,
-  User,
-  Hash,
-  ShieldCheck,
+  Stethoscope,
+  Clock,
+  Pill,
+  FileText,
+  Calendar,
+  Check,
+  X,
   ChevronDown,
   ChevronUp,
+  ShieldCheck,
 } from 'lucide-react';
 import AppBridge from '../../services/bridge';
-import type { Task } from '../../types';
 
 export interface ActionCardProps {
   action: string;
@@ -22,18 +24,19 @@ export interface ActionCardProps {
     description?: string;
     priority?: string;
     status?: string;
-    story_points?: number | string;
-    ticket_type?: 'internal' | 'external';
-    project_id?: number;
-    assignee?: string;
-    acceptance_criteria?: string;
-    action_key?: string;
+    patient_id?: string;
+    patient_alias?: string;
+    proposal_id?: string;
+    proposal_type?: string;
+    updates?: Record<string, any>;
+    diff?: Record<string, any>;
+    rationale?: string;
     [key: string]: any;
   };
   conversationId?: string;
   actionKey?: string;
   isAlreadyApplied?: boolean;
-  onApplied?: (task: Task, actionKey: string) => void;
+  onApplied?: (result: any, actionKey: string) => void;
 }
 
 export const ActionCard: React.FC<ActionCardProps> = ({
@@ -44,236 +47,291 @@ export const ActionCard: React.FC<ActionCardProps> = ({
   isAlreadyApplied = false,
   onApplied,
 }) => {
-  const title = (data.title || data.subject || 'Untitled Story').trim();
-  const computedActionKey =
-    actionKey ||
-    data.action_key ||
-    `${conversationId || 'global'}:${action || 'create_ticket'}:${title.toLowerCase()}`;
-
   const [isApplying, setIsApplying] = useState(false);
+  const [isRejecting, setIsRejecting] = useState(false);
   const [isApplied, setIsApplied] = useState(Boolean(isAlreadyApplied));
-  const [appliedTask, setAppliedTask] = useState<Task | null>(null);
+  const [isRejected, setIsRejected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  React.useEffect(() => {
-    if (isAlreadyApplied) {
-      setIsApplied(true);
-    }
-  }, [isAlreadyApplied]);
+  const title = (data.title || data.subject || data.rationale || 'Clinical Proposal').trim();
+  const computedActionKey =
+    actionKey ||
+    data.action_key ||
+    `${conversationId || 'global'}:${action || 'proposal'}:${title.toLowerCase()}`;
 
-  const description = (data.description || '').trim();
-  const priority = (data.priority || 'med').toLowerCase();
-  const storyPoints = data.story_points ? Number(data.story_points) : null;
-  const ticketType = (data.ticket_type || 'internal').toLowerCase() as 'internal' | 'external';
-  const assignee = (data.assignee || '').trim();
-  const acceptanceCriteria = (data.acceptance_criteria || '').trim();
+  const isArtifactProposal =
+    action.includes('artifact') ||
+    data.proposal_type === 'artifact_update' ||
+    Boolean(data.updates);
 
-  // Priority color styles
-  const getPriorityBadge = (prio: string) => {
-    switch (prio) {
-      case 'urgent':
-        return 'bg-red-500/15 text-red-400 border-red-500/30';
-      case 'high':
-        return 'bg-orange-500/15 text-orange-400 border-orange-500/30';
-      case 'low':
-        return 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30';
-      case 'med':
-      default:
-        return 'bg-[#e8a84c]/15 text-[#e8a84c] border-[#e8a84c]/30';
-    }
-  };
+  const isLogProposal =
+    action.includes('log') ||
+    data.proposal_type === 'log_entry' ||
+    Boolean(data.content && !data.title);
 
-  const handleApply = async () => {
-    if (isApplying || isApplied) return;
+  const isTicketProposal =
+    action.includes('ticket') ||
+    action.includes('task') ||
+    action.includes('reminder') ||
+    data.proposal_type === 'ticket';
+
+  const priority = (data.priority || 'medium').toLowerCase();
+  const priorityColor =
+    priority === 'critical'
+      ? 'bg-rose-50 text-rose-700 border-rose-200'
+      : priority === 'high'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : 'bg-blue-50 text-blue-700 border-blue-200';
+
+  const handleApprove = async () => {
+    if (isApplying || isApplied || isRejected) return;
     setIsApplying(true);
     setErrorMessage(null);
 
     try {
-      const res = await AppBridge.api.executeAction(
-        action || 'create_ticket',
-        data,
-        conversationId,
-        computedActionKey
-      );
-
-      if (res.success && res.task) {
-        setIsApplied(true);
-        setAppliedTask(res.task);
-        if (onApplied) {
-          onApplied(res.task, computedActionKey);
+      if (data.proposal_id) {
+        // Direct accept through Proposal API
+        const res = await AppBridge.api.acceptProposal(data.proposal_id);
+        if (res.success) {
+          setIsApplied(true);
+          onApplied?.(res, computedActionKey);
+          return;
         }
+      }
+
+      // If no proposal_id or proposal was proposed as ticket
+      if (isTicketProposal) {
+        const ticketRes = await AppBridge.api.createTicket({
+          patient_id: data.patient_id,
+          title: data.title || title,
+          description: data.description || data.rationale || '',
+          priority: data.priority || 'medium',
+          due_date: data.due_date,
+        });
+        setIsApplied(true);
+        onApplied?.(ticketRes, computedActionKey);
+      } else if (isArtifactProposal && data.patient_id && data.updates) {
+        // Direct artifact patch if proposed without pre-saved ID
+        const artRes = await AppBridge.api.updatePatientArtifact(
+          data.patient_id,
+          data.updates,
+          data.rationale || 'Copilot approved proposal'
+        );
+        setIsApplied(true);
+        onApplied?.(artRes, computedActionKey);
       } else {
-        throw new Error(res.message || 'Action execution was rejected.');
+        // Fallback to general executeAction
+        const res = await AppBridge.api.executeAction(
+          action || 'create_ticket',
+          data,
+          conversationId,
+          computedActionKey
+        );
+        if (res.success) {
+          setIsApplied(true);
+          onApplied?.(res, computedActionKey);
+        } else {
+          throw new Error('Could not apply proposal.');
+        }
       }
     } catch (err: any) {
-      console.error('Failed to apply action:', err);
-      setErrorMessage(err.message || 'Failed to create ticket on Sprint Board.');
+      setErrorMessage(err.message || 'Failed to approve proposal.');
     } finally {
       setIsApplying(false);
     }
   };
 
+  const handleReject = async () => {
+    if (isRejecting || isApplied || isRejected) return;
+    setIsRejecting(true);
+    setErrorMessage(null);
+
+    try {
+      if (data.proposal_id) {
+        await AppBridge.api.rejectProposal(data.proposal_id, 'Rejected by physician');
+      }
+      setIsRejected(true);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to reject proposal.');
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
   return (
     <div
-      className={`my-3.5 rounded-xl border transition-all duration-200 overflow-hidden shadow-sm ${
+      className={`my-3 rounded-xl border transition-all duration-200 overflow-hidden shadow-2xs ${
         isApplied
-          ? 'bg-[#151c17] border-[#5aab7f]/40'
-          : 'bg-[#161514] border-[#e8a84c]/30 hover:border-[#e8a84c]/50'
+          ? 'bg-emerald-50/40 border-emerald-300'
+          : isRejected
+          ? 'bg-slate-50 border-slate-300 opacity-70'
+          : 'bg-white border-[#BFDBFE] hover:border-[#2563EB]/60'
       }`}
     >
       {/* ── Card Header ──────────────────────────────────────────────────────── */}
-      <div className="px-4 py-2.5 bg-[#1a1918] border-b border-[#2e2c2a] flex items-center justify-between text-xs">
+      <div
+        className={`px-4 py-2.5 border-b flex items-center justify-between text-xs ${
+          isApplied
+            ? 'bg-emerald-100/50 border-emerald-200 text-emerald-800'
+            : isRejected
+            ? 'bg-slate-100 border-slate-200 text-slate-600'
+            : 'bg-[#EFF6FF] border-[#BFDBFE] text-slate-900'
+        }`}
+      >
         <div className="flex items-center gap-2">
-          <div className="p-1 rounded bg-[#e8a84c]/10 text-[#e8a84c]">
-            <Kanban className="w-3.5 h-3.5" />
+          <div className="p-1 rounded bg-white border border-[#BFDBFE] text-[#2563EB]">
+            {isArtifactProposal ? (
+              <Stethoscope className="w-3.5 h-3.5" />
+            ) : isLogProposal ? (
+              <FileText className="w-3.5 h-3.5" />
+            ) : (
+              <Clock className="w-3.5 h-3.5" />
+            )}
           </div>
-          <span className="font-semibold text-[#edeae4] tracking-wide uppercase text-[11px] font-mono">
-            ⚡ Action Proposal: Create Sprint Ticket
+          <span className="font-bold text-slate-900 text-[11px] tracking-wide uppercase">
+            {isArtifactProposal
+              ? '🩺 Proposed Chart Artifact Update'
+              : isLogProposal
+              ? '📝 Proposed Medical Observation'
+              : '📋 Proposed Clinical Action Item'}
           </span>
+          {data.patient_alias && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-white text-blue-700 border border-blue-200">
+              {data.patient_alias}
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div>
           {isApplied ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[#5aab7f]/20 text-[#5aab7f] border border-[#5aab7f]/30">
-              <CheckCircle2 className="w-3 h-3" />
-              Applied
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-600 text-white">
+              <Check className="w-3 h-3" />
+              <span>Approved & Committed</span>
+            </span>
+          ) : isRejected ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-400 text-white">
+              <X className="w-3 h-3" />
+              <span>Rejected</span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-[#e8a84c]/10 text-[#e8a84c] border border-[#e8a84c]/20">
-              <Sparkles className="w-3 h-3" />
-              Pending Review
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+              <span>Pending Doctor Signature</span>
             </span>
           )}
         </div>
       </div>
 
       {/* ── Card Body ────────────────────────────────────────────────────────── */}
-      <div className="p-4 space-y-3">
-        {/* Title & Metadata Badges */}
+      <div className="p-4 space-y-3 bg-white">
+        {/* Title or Rationale */}
         <div>
-          <div className="flex items-start justify-between gap-3">
-            <h4 className="text-sm font-semibold text-[#edeae4] leading-snug">
-              {title}
-            </h4>
-          </div>
-
-          <div className="flex items-center gap-2 mt-2 flex-wrap text-[11px] font-mono">
-            {/* Ticket Type Tag */}
-            <span
-              className={`px-2 py-0.5 rounded border uppercase text-[10px] font-bold ${
-                ticketType === 'external'
-                  ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
-                  : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-              }`}
-            >
-              {ticketType === 'external' ? '🌐 External (Customer)' : '🔒 Internal (Engineering)'}
-            </span>
-
-            {/* Priority */}
-            <span
-              className={`px-2 py-0.5 rounded border uppercase text-[10px] font-semibold ${getPriorityBadge(
-                priority
-              )}`}
-            >
-              {priority.toUpperCase()}
-            </span>
-
-            {/* Story Points */}
-            {storyPoints !== null && !isNaN(storyPoints) && storyPoints > 0 && (
-              <span className="px-2 py-0.5 rounded border border-[#2e2c2a] bg-[#222120] text-[#edeae4] flex items-center gap-1 text-[10px]">
-                <Hash className="w-3 h-3 text-[#e8a84c]" />
-                {storyPoints} pts
-              </span>
-            )}
-
-            {/* Assignee */}
-            {assignee && (
-              <span className="px-2 py-0.5 rounded border border-[#2e2c2a] bg-[#222120] text-[#9b9690] flex items-center gap-1 text-[10px]">
-                <User className="w-3 h-3" />
-                {assignee}
-              </span>
-            )}
-          </div>
+          <div className="text-xs font-bold text-slate-900 leading-snug">{title}</div>
+          {data.rationale && data.rationale !== title && (
+            <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+              <strong>Clinical Rationale:</strong> {data.rationale}
+            </p>
+          )}
         </div>
 
-        {/* Description */}
-        {description && (
-          <p className="text-xs text-[#9b9690] leading-relaxed bg-[#111110] p-2.5 rounded-lg border border-[#2e2c2a]">
-            {description}
-          </p>
-        )}
+        {/* Diff & Field Changes for Artifact Updates */}
+        {isArtifactProposal && data.updates && (
+          <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] space-y-2 text-xs">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Proposed Changes (Diff Review)
+            </div>
 
-        {/* Acceptance Criteria (Gherkin format) */}
-        {acceptanceCriteria && (
-          <div className="text-xs bg-[#111110] rounded-lg border border-[#2e2c2a] overflow-hidden">
-            <button
-              onClick={() => setShowDetails(!showDetails)}
-              className="w-full px-3 py-1.5 bg-[#191817] flex items-center justify-between text-[11px] text-[#9b9690] hover:text-[#edeae4] transition-colors"
-            >
-              <span className="font-mono text-[#e8a84c] flex items-center gap-1.5">
-                <ShieldCheck className="w-3 h-3" />
-                Acceptance Criteria (Gherkin)
-              </span>
-              {showDetails ? (
-                <ChevronUp className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5" />
-              )}
-            </button>
-            {showDetails && (
-              <div className="p-3 font-mono text-[11px] text-[#edeae4] whitespace-pre-wrap leading-relaxed border-t border-[#2e2c2a]">
-                {acceptanceCriteria}
+            {data.updates.medications && (
+              <div>
+                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                  <Pill className="w-3 h-3 text-[#2563EB]" /> Medications:
+                </span>
+                <div className="pl-4 mt-0.5 space-y-0.5">
+                  {(data.updates.medications as string[]).map((m, idx) => (
+                    <div key={idx} className="text-emerald-700 font-mono text-[11px]">
+                      + {m}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {data.updates.active_issues && (
+              <div>
+                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 text-amber-500" /> Active Issues:
+                </span>
+                <div className="pl-4 mt-0.5 space-y-0.5">
+                  {(data.updates.active_issues as string[]).map((iss, idx) => (
+                    <div key={idx} className="text-emerald-700 font-mono text-[11px]">
+                      + {iss}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {data.updates.watch_for && (
+              <div>
+                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-rose-500" /> Watch-For Alerts:
+                </span>
+                <div className="pl-4 mt-0.5 space-y-0.5">
+                  {(data.updates.watch_for as string[]).map((w, idx) => (
+                    <div key={idx} className="text-emerald-700 font-mono text-[11px]">
+                      + {w}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Error message banner */}
+        {/* Ticket Details */}
+        {isTicketProposal && (
+          <div className="flex items-center gap-3 text-[11px] text-slate-600">
+            <span className={`px-2 py-0.5 rounded border font-semibold uppercase ${priorityColor}`}>
+              {priority} Priority
+            </span>
+            {data.due_date && (
+              <span className="flex items-center gap-1 text-slate-500">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Due: {data.due_date}</span>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Error message if approval fails */}
         {errorMessage && (
-          <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 flex items-center gap-2">
+          <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
-      </div>
 
-      {/* ── Card Footer with Action Button ───────────────────────────────────── */}
-      <div className="px-4 py-2.5 bg-[#141312] border-t border-[#2e2c2a] flex items-center justify-between">
-        <div className="text-[11px] text-[#5c5955] font-mono">
-          {isApplied && appliedTask ? (
-            <span className="text-[#5aab7f] flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Created as Ticket #{appliedTask.id}
-            </span>
-          ) : (
-            <span>Ready for sprint backlog</span>
-          )}
-        </div>
+        {/* ── Action Buttons (Doctor in Control) ─────────────────────────────── */}
+        {!isApplied && !isRejected && (
+          <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#E2E8F0]">
+            <button
+              onClick={handleReject}
+              disabled={isRejecting || isApplying}
+              className="px-3 py-1.5 rounded-lg bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              {isRejecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+              <span>Reject</span>
+            </button>
 
-        {isApplied ? (
-          <div className="text-xs font-semibold text-[#5aab7f] flex items-center gap-1.5 px-3 py-1 rounded bg-[#5aab7f]/10 border border-[#5aab7f]/20">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Added to Sprint Board</span>
+            <button
+              onClick={handleApprove}
+              disabled={isApplying || isRejecting}
+              className="px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-2xs transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              {isApplying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              <span>Approve & Commit</span>
+            </button>
           </div>
-        ) : (
-          <button
-            onClick={handleApply}
-            disabled={isApplying}
-            className="px-3.5 py-1.5 rounded-lg bg-[#e8a84c] hover:bg-[#d4973b] disabled:opacity-50 text-[#111110] font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-          >
-            {isApplying ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Applying to Board...</span>
-              </>
-            ) : (
-              <>
-                <span className="text-black font-bold">⚡</span>
-                <span>Apply to Sprint Board</span>
-              </>
-            )}
-          </button>
         )}
       </div>
     </div>

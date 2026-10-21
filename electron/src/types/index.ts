@@ -1,4 +1,4 @@
-export type NavTab = 'home' | 'board' | 'dashboard' | 'documents' | 'chat' | 'settings' | 'patients';
+export type NavTab = 'chat' | 'home' | 'patients' | 'documents' | 'board' | 'settings';
 
 export interface Patient {
   id: string;
@@ -186,8 +186,11 @@ export type TaskStatus = 'todo' | 'in_progress' | 'blocked' | 'done' | string;
 export type TaskPriority = 'low' | 'med' | 'high' | 'urgent';
 
 export interface Task {
-  id: number;
-  project_id: number;
+  id: number | string;
+  project_id?: number;
+  patient_id?: string;
+  patient_alias?: string;
+  patient_display_name?: string;
   title: string;
   description: string;
   status: TaskStatus;
@@ -197,6 +200,8 @@ export interface Task {
   acceptance_criteria?: string;
   assignee?: string;
   due_date?: string;
+  due_time?: string;
+  is_reminder?: number;
   position?: number;
   external_provider?: string | null;
   external_id?: string | null;
@@ -350,6 +355,20 @@ export interface ActionProposal {
   assignee?: string;
   acceptance_criteria?: string;
   [key: string]: any;
+}
+
+export interface ClinicalProposal {
+  id: string;
+  patient_id: string;
+  patient_alias?: string;
+  visit_id?: string;
+  proposal_type: 'artifact_update' | 'ticket' | 'log_entry' | 'reminder' | string;
+  payload: Record<string, any>;
+  diff?: Record<string, any>;
+  rationale: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
+  resolved_at?: string;
 }
 
 export type ArtifactDocType = 'prd' | 'rfc' | 'brief' | 'architecture' | 'notes' | 'breakdown' | 'document';

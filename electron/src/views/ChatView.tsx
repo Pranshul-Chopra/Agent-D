@@ -18,11 +18,11 @@ import {
   FileText,
   AlertCircle,
   Loader2,
-  CheckCircle2,
+  Square,
+  ShieldCheck,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
 import MarkdownContent from '../components/chat/MarkdownContent';
-import ActionCard from '../components/chat/ActionCard';
 import type { Patient } from '../types';
 
 interface ChatMessage {
@@ -30,20 +30,21 @@ interface ChatMessage {
   sender: 'user' | 'assistant';
   content: string;
   timestamp: string;
-  sources?: { filename?: string; section?: string }[];
+  isStreaming?: boolean;
 }
 
 interface ConversationItem {
   id: string;
   title: string;
   created_at: string;
+  message_count?: number;
 }
 
 const CLINICAL_PROMPT_CHIPS = [
   { label: '☀️ Morning Brief', prompt: "What's on my dashboard today? Brief me on today's appointments and pending tasks." },
   { label: '🩺 Next Patient Brief', prompt: 'Who is my next scheduled patient and what crucial watch-for items should I check?' },
   { label: '💊 Medication Review', prompt: 'Review current active medications and dosages for this patient.' },
-  { label: '📝 Dictate Visit Notes', prompt: 'I want to record visit notes: Patient reported stable vitals, BP 124/82. Propose necessary chart updates and follow-ups.' },
+  { label: '📝 Dictate Visit Notes', prompt: 'I want to record visit notes: Patient presented stable vitals, BP 124/82, HR 72. Formulate clinical impressions and follow-up plan.' },
 ];
 
 export interface ChatViewProps {
@@ -65,6 +66,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cancelStreamRef = useRef<(() => void) | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -74,34 +76,53 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
     scrollToBottom();
   }, [messages, loading]);
 
-  // Load conversations on mount
+  // Load conversations on mount or when activePatient changes
   useEffect(() => {
     loadConversations();
-  }, []);
+    return () => {
+      if (cancelStreamRef.current) {
+        cancelStreamRef.current();
+      }
+    };
+  }, [activePatient?.id]);
 
   const loadConversations = async () => {
     try {
-      const res = await AppBridge.api.getConversations();
-      const list = res.conversations || [];
+      const res = await AppBridge.api.listChatSessions(activePatient?.id);
+      const list = res.sessions || [];
       setConversations(list);
-      if (list.length > 0 && !activeConvId) {
-        selectConversation(list[0].id);
+      if (list.length > 0) {
+        if (!activeConvId || !list.some((c: any) => c.id === activeConvId)) {
+          selectConversation(list[0].id);
+        }
+      } else {
+        setActiveConvId(null);
+        setMessages([]);
       }
     } catch (_) {}
   };
 
   const selectConversation = async (convId: string) => {
+    if (cancelStreamRef.current) {
+      cancelStreamRef.current();
+      cancelStreamRef.current = null;
+      setLoading(false);
+    }
     setActiveConvId(convId);
     try {
-      const res = await AppBridge.api.getConversation(convId);
-      if (res.conversation && res.conversation.messages) {
-        const mapped: ChatMessage[] = res.conversation.messages.map((m: any) => ({
+      const res = await AppBridge.api.getChatSession(convId);
+      if (res.session && res.session.messages) {
+        const mapped: ChatMessage[] = res.session.messages.map((m: any) => ({
           id: m.id || String(Math.random()),
           sender: m.role === 'user' ? 'user' : 'assistant',
           content: m.content || '',
-          timestamp: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          timestamp: m.created_at
+            ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '',
         }));
         setMessages(mapped);
+      } else {
+        setMessages([]);
       }
     } catch (_) {}
   };
@@ -109,63 +130,129 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
   const handleNewConversation = async () => {
     try {
       const title = activePatient ? `Consult: ${activePatient.display_name}` : 'Clinical Consultation';
-      const res = await AppBridge.api.createConversation(title);
-      if (res.conversation) {
-        setConversations((prev) => [res.conversation, ...prev]);
-        setActiveConvId(res.conversation.id);
+      const res = await AppBridge.api.createChatSession(title, activePatient?.id);
+      const session = res.session || res.conversation;
+      if (session) {
+        setConversations((prev) => [session, ...prev]);
+        setActiveConvId(session.id);
         setMessages([]);
       }
     } catch (_) {}
+  };
+
+  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation();
+    try {
+      await AppBridge.api.deleteChatSession(convId);
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      if (activeConvId === convId) {
+        const remaining = conversations.filter((c) => c.id !== convId);
+        if (remaining.length > 0) {
+          selectConversation(remaining[0].id);
+        } else {
+          setActiveConvId(null);
+          setMessages([]);
+        }
+      }
+    } catch (_) {}
+  };
+
+  const handleStopStream = () => {
+    if (cancelStreamRef.current) {
+      cancelStreamRef.current();
+      cancelStreamRef.current = null;
+      setLoading(false);
+      setMessages((prev) =>
+        prev.map((m, idx) => (idx === prev.length - 1 ? { ...m, isStreaming: false } : m))
+      );
+    }
   };
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || input).trim();
     if (!query || loading) return;
 
-    let convId = activeConvId;
-    if (!convId) {
-      try {
-        const title = query.slice(0, 36) + (query.length > 36 ? '...' : '');
-        const res = await AppBridge.api.createConversation(title);
-        convId = res.conversation.id;
-        setActiveConvId(convId);
-        setConversations((prev) => [res.conversation, ...prev]);
-      } catch (_) {
-        return;
-      }
+    if (cancelStreamRef.current) {
+      cancelStreamRef.current();
+      cancelStreamRef.current = null;
     }
 
+    const userMsgId = String(Date.now());
+    const assistantMsgId = String(Date.now() + 1);
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
     const userMsg: ChatMessage = {
-      id: String(Date.now()),
+      id: userMsgId,
       sender: 'user',
       content: query,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: nowTime,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      sender: 'assistant',
+      content: '',
+      timestamp: nowTime,
+      isStreaming: true,
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput('');
     setLoading(true);
 
-    try {
-      const res = await AppBridge.api.sendMessage(convId, query);
-      const assistantMsg: ChatMessage = {
-        id: String(Date.now() + 1),
-        sender: 'assistant',
-        content: res.message?.content || res.content || 'I have noted your input.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      const errorMsg: ChatMessage = {
-        id: String(Date.now() + 1),
-        sender: 'assistant',
-        content: `**Note:** ${err?.message || 'Could not complete request. Please verify your Gemini API key in Settings.'}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
-    } finally {
-      setLoading(false);
-    }
+    const cancel = AppBridge.api.streamChat(
+      {
+        message: query,
+        session_id: activeConvId || undefined,
+        patient_id: activePatient?.id || undefined,
+      },
+      {
+        onStart: (sessionId: string) => {
+          if (!activeConvId) {
+            setActiveConvId(sessionId);
+            loadConversations();
+          }
+        },
+        onToken: (token: string, sessionId: string) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, content: m.content + token, isStreaming: true }
+                : m
+            )
+          );
+        },
+        onDone: (fullText: string, sessionId: string) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, content: fullText, isStreaming: false }
+                : m
+            )
+          );
+          setLoading(false);
+          cancelStreamRef.current = null;
+          loadConversations();
+        },
+        onError: (err: string) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content: `**Clinical Copilot Notice:** ${err || 'Could not complete generation.'}`,
+                    isStreaming: false,
+                  }
+                : m
+            )
+          );
+          setLoading(false);
+          cancelStreamRef.current = null;
+        },
+      }
+    );
+
+    cancelStreamRef.current = cancel;
   };
 
   const handleCopyMessage = (id: string, content: string) => {
@@ -190,10 +277,17 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
         }`}
       >
         <div className="h-13 px-4 border-b border-[#E2E8F0] flex items-center justify-between">
-          <span className="text-xs font-bold text-slate-900">Consultation History</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-900">Consultation History</span>
+            {activePatient && (
+              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                {activePatient.llm_alias}
+              </span>
+            )}
+          </div>
           <button
             onClick={handleNewConversation}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-[11px] font-semibold shadow-2xs transition-colors cursor-pointer"
             title="Start new consultation thread"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -210,20 +304,32 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
             conversations.map((c) => {
               const isActive = c.id === activeConvId;
               return (
-                <button
+                <div
                   key={c.id}
                   onClick={() => selectConversation(c.id)}
-                  className={`w-full text-left p-2.5 rounded-lg text-xs transition-all cursor-pointer ${
+                  className={`group w-full flex items-center justify-between p-2.5 rounded-lg text-xs transition-all cursor-pointer ${
                     isActive
                       ? 'bg-white border border-[#BFDBFE] text-[#1D4ED8] font-bold shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
                   }`}
                 >
-                  <div className="flex items-center gap-2 truncate">
-                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-400'}`} />
+                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                    <MessageSquare
+                      className={`w-3.5 h-3.5 flex-shrink-0 ${
+                        isActive ? 'text-[#2563EB]' : 'text-slate-400'
+                      }`}
+                    />
                     <span className="truncate">{c.title || 'Untitled Consultation'}</span>
                   </div>
-                </button>
+
+                  <button
+                    onClick={(e) => handleDeleteConversation(e, c.id)}
+                    className="opacity-0 group-hover:opacity-100 hover:text-rose-600 p-1 rounded transition-opacity cursor-pointer flex-shrink-0 ml-1"
+                    title="Delete consultation"
+                  >
+                    <Trash2 className="w-3 h-3 text-slate-400 hover:text-rose-600" />
+                  </button>
+                </div>
               );
             })
           )}
@@ -244,10 +350,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
             </button>
 
             {/* Active Patient Indicator */}
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
-                <Stethoscope className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
+                <Stethoscope className="w-4 h-4" />
               </div>
+
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-900">
@@ -260,16 +367,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                   )}
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  {activePatient ? 'Patient context active • Guarded proposal gate' : 'Ask anything or query schedule'}
+                  {activePatient
+                    ? `${activePatient.gender || 'Patient'} • DOB: ${activePatient.date_of_birth || 'Not recorded'} • AES-256 Grounded`
+                    : "Real-time Practice Context • Temporal Schedule Grounded"}
                 </div>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-medium">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>Gemini AI Connected</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>De-Identified & Encrypted</span>
             </div>
           </div>
         </div>
@@ -277,17 +386,21 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
         {/* Conversation Stream */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {messages.length === 0 ? (
-            /* Welcome Clean Slate */
+            /* Welcome Slate */
             <div className="max-w-2xl mx-auto py-12 text-center space-y-6 animate-fadeIn">
               <div className="w-14 h-14 rounded-2xl bg-[#EFF6FF] border border-[#BFDBFE] mx-auto flex items-center justify-center text-[#2563EB] shadow-xs">
                 <Stethoscope className="w-7 h-7" />
               </div>
 
               <div className="space-y-1.5">
-                <h2 className="text-lg font-bold text-slate-900">Clinical Chief of Staff</h2>
+                <h2 className="text-lg font-bold text-slate-900">
+                  {activePatient
+                    ? `Clinical Copilot — ${activePatient.display_name} (${activePatient.llm_alias})`
+                    : 'Clinical Workstation Copilot'}
+                </h2>
                 <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                  Ask for today's agenda, summarize patient files, check watch-for items, or dictate consult notes.
-                  The assistant proposes; you approve.
+                  Brief today's appointments, review active medications, inspect watch-for alerts, or dictate visit notes.
+                  All responses are synthesized with strict doctor-in-control clinical standards.
                 </p>
               </div>
 
@@ -338,9 +451,16 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                           : 'bg-[#F8FAFC] border border-[#E2E8F0] text-slate-900 rounded-tl-xs shadow-2xs'
                       }`}
                     >
-                      <div className="prose prose-xs max-w-none">
-                        <MarkdownContent content={m.content} />
-                      </div>
+                      {m.content ? (
+                        <div className="prose prose-xs max-w-none">
+                          <MarkdownContent content={m.content} />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-slate-400 py-1">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
+                          <span>Generating clinical response...</span>
+                        </div>
+                      )}
 
                       {/* Footer Actions */}
                       <div
@@ -349,7 +469,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                         }`}
                       >
                         <span>{m.timestamp}</span>
-                        {!isUser && (
+                        {!isUser && m.content && (
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => handleCopyMessage(m.id, m.content)}
@@ -376,17 +496,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                 );
               })}
 
-              {loading && (
-                <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] flex items-center justify-center">
-                    <Bot className="w-4 h-4 animate-pulse" />
-                  </div>
-                  <div className="p-3.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-xs text-slate-500 flex items-center gap-2 shadow-2xs">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
-                    <span>Analyzing clinical context & drafting proposal...</span>
-                  </div>
+              {loading && messages.length > 0 && messages[messages.length - 1].content === '' && (
+                <div className="flex items-center justify-center pt-2">
+                  <button
+                    onClick={handleStopStream}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    <Square className="w-3 h-3 fill-slate-500 text-slate-500" />
+                    <span>Stop Generating</span>
+                  </button>
                 </div>
               )}
+
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -418,20 +539,30 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                 onKeyDown={handleKeyDown}
                 placeholder={
                   activePatient
-                    ? `Consulting for ${activePatient.display_name}... or type 'What is on my dashboard?'`
+                    ? `Consulting for ${activePatient.display_name} (${activePatient.llm_alias})... or type 'Morning brief'`
                     : "Ask Copilot, dictate consult notes, or ask 'What is on my dashboard today?'..."
                 }
                 className="flex-1 max-h-32 p-2 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 outline-none resize-none"
               />
 
-              <button
-                onClick={() => handleSendMessage()}
-                disabled={loading || !input.trim()}
-                className="w-8 h-8 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-30 disabled:hover:bg-[#2563EB] text-white flex items-center justify-center flex-shrink-0 shadow-2xs transition-all cursor-pointer mb-0.5"
-                title="Send message"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
+              {loading ? (
+                <button
+                  onClick={handleStopStream}
+                  className="w-8 h-8 rounded-xl bg-slate-700 hover:bg-slate-800 text-white flex items-center justify-center flex-shrink-0 shadow-2xs transition-all cursor-pointer mb-0.5"
+                  title="Stop generating"
+                >
+                  <Square className="w-3.5 h-3.5 fill-white text-white" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleSendMessage()}
+                  disabled={!input.trim()}
+                  className="w-8 h-8 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-30 disabled:hover:bg-[#2563EB] text-white flex items-center justify-center flex-shrink-0 shadow-2xs transition-all cursor-pointer mb-0.5"
+                  title="Send message"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -23,6 +23,9 @@ _pool: Optional[Queue] = None
 
 
 def get_config_db_path() -> Path:
+    override = os.getenv("AGENT_D_CONFIG_DB")
+    if override:
+        return Path(override)
     base = os.getenv("LOCALAPPDATA") or str(Path.home() / ".agentd")
     p = Path(base) / "AgentD"
     p.mkdir(parents=True, exist_ok=True)
@@ -48,6 +51,18 @@ def init_config_pool():
         _pool = Queue(maxsize=POOL_SIZE)
         for _ in range(POOL_SIZE):
             _pool.put(_create_connection())
+
+
+def reset_pool():
+    global _pool
+    if _pool is not None:
+        while not _pool.empty():
+            try:
+                conn = _pool.get_nowait()
+                conn.close()
+            except Exception:
+                pass
+        _pool = None
 
 
 class ConfigConnectionContext:
@@ -309,3 +324,40 @@ def get_prompt_template(name: str) -> Optional[str]:
             (name,),
         ).fetchone()
         return row["prompt_content"] if row else None
+
+
+def get_active_rotated_key(provider: str = "gemini") -> Optional[Dict[str, Any]]:
+    """
+    Returns an active, non-cooldown API key with the decrypted raw_key.
+    Rotates based on priority and least recently used.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with get_config_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key, k.priority,
+                   u.cooldown_until, u.total_calls
+            FROM api_keys k
+            LEFT JOIN key_usage u ON k.id = u.key_id
+            WHERE k.provider = ? AND k.is_active = 1
+              AND (u.cooldown_until IS NULL OR u.cooldown_until < ?)
+            ORDER BY k.priority ASC, COALESCE(u.last_used_at, '1970-01-01') ASC
+            """,
+            (provider, now),
+        ).fetchall()
+
+        if not rows:
+            all_keys = conn.execute(
+                "SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key FROM api_keys k WHERE k.provider = ? AND k.is_active = 1",
+                (provider,),
+            ).fetchall()
+            if not all_keys:
+                return None
+            row = all_keys[0]
+        else:
+            row = rows[0]
+
+        item = dict(row)
+        item["raw_key"] = crypto_utils.decrypt_text(item["encrypted_key"])
+        del item["encrypted_key"]
+        return item

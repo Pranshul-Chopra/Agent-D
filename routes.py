@@ -1,12 +1,13 @@
 # ── routes.py ─────────────────────────────────────────────────────────────────
 # Flask routes and REST API for PM Tool.
 
-from flask import Blueprint, render_template, request, jsonify, send_file, send_from_directory
+from flask import Blueprint, render_template, request, jsonify, send_file, send_from_directory, Response, stream_with_context
 import db
 import ai_db
-import artifacts_db
 import config_db
 import context_db
+import clinical_context
+import clinical_chat
 from llm import gateway as llm_gateway
 import system_context as workspace_context
 
@@ -45,10 +46,7 @@ def index():
     spa_index = _get_base_dir() / "static" / "spa" / "index.html"
     if spa_index.is_file():
         return send_file(str(spa_index))
-    legacy_shell = _get_base_dir() / "templates" / "shell.html"
-    if legacy_shell.is_file():
-        return render_template("shell.html")
-    return "<h3>PM Tool Desktop SPA build not found. Please compile the React frontend.</h3>", 500
+    return "<h3>Agent-D Desktop SPA build not found. Please compile the React frontend.</h3>", 500
 
 
 @bp.route("/assets/<path:filename>")
@@ -57,42 +55,6 @@ def spa_assets(filename):
     if spa_asset_dir.is_dir():
         return send_from_directory(str(spa_asset_dir), filename)
     return jsonify({"error": "Asset not found"}), 404
-
-
-@bp.route("/legacy")
-def legacy():
-    """Allows accessing the legacy multi-frame shell if needed."""
-    return render_template("shell.html")
-
-
-@bp.route("/home")
-def home():
-    return render_template("home.html")
-
-
-@bp.route("/board")
-def board_page():
-    return render_template("board.html")
-
-
-@bp.route("/chat")
-def chat_page():
-    return render_template("chat.html")
-
-
-@bp.route("/documents")
-def documents_page():
-    return render_template("documents.html")
-
-
-@bp.route("/dashboard")
-def dashboard_page():
-    return render_template("dashboard.html")
-
-
-@bp.route("/settings")
-def settings_page():
-    return render_template("settings.html")
 
 
 # ── Core System APIs ───────────────────────────────────────────────────────────
@@ -394,6 +356,127 @@ def api_v1_delete_key(key_id):
     return jsonify({"success": True})
 
 
+# ── Clinical Tickets & Action Items (Milestone 4) ─────────────────────────────
+
+@bp.route("/api/v1/tickets", methods=["GET", "POST"])
+def api_v1_tickets():
+    """List or create clinical tickets in context.db."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or "").strip()
+        if not title:
+            return jsonify({"error": "Ticket title is required"}), 400
+
+        ticket = context_db.create_ticket(
+            patient_id=data.get("patient_id"),
+            title=title,
+            description=data.get("description", ""),
+            priority=data.get("priority", "medium"),
+            status=data.get("status", "todo"),
+            due_date=data.get("due_date"),
+            due_time=data.get("due_time"),
+            is_reminder=int(data.get("is_reminder", 0)),
+            visit_id=data.get("visit_id"),
+        )
+        return jsonify({"ticket": ticket}), 201
+
+    patient_id = request.args.get("patient_id")
+    status = request.args.get("status")
+    tickets_list = context_db.list_tickets(patient_id=patient_id, status=status)
+    return jsonify({"tickets": tickets_list, "count": len(tickets_list)})
+
+
+@bp.route("/api/v1/tickets/<ticket_id>", methods=["GET", "PATCH", "DELETE"])
+def api_v1_ticket_detail(ticket_id):
+    """Retrieve, update status/fields, or delete a clinical ticket."""
+    if request.method == "DELETE":
+        ok = context_db.delete_ticket(ticket_id)
+        if not ok:
+            return jsonify({"error": "Ticket not found"}), 404
+        return jsonify({"status": "deleted", "id": ticket_id})
+
+    if request.method == "PATCH":
+        data = request.get_json(silent=True) or {}
+        updated = context_db.update_ticket(ticket_id, data)
+        if not updated:
+            return jsonify({"error": "Ticket not found or no valid fields provided"}), 404
+        return jsonify({"ticket": updated})
+
+    ticket = context_db.get_ticket(ticket_id)
+    if not ticket:
+        return jsonify({"error": "Ticket not found"}), 404
+    return jsonify({"ticket": ticket})
+
+
+# ── Safety Gate & Proposal Queue (Milestone 4) ────────────────────────────────
+
+@bp.route("/api/v1/proposals", methods=["GET", "POST"])
+def api_v1_proposals():
+    """List pending proposals or create a new assistant proposal."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        patient_id = data.get("patient_id")
+        proposal_type = data.get("proposal_type")
+        payload = data.get("payload") or {}
+        rationale = data.get("rationale") or "Copilot recommendation"
+        if not patient_id or not proposal_type:
+            return jsonify({"error": "patient_id and proposal_type are required"}), 400
+
+        prop = context_db.create_proposal(
+            patient_id=patient_id,
+            proposal_type=proposal_type,
+            payload=payload,
+            rationale=rationale,
+            visit_id=data.get("visit_id"),
+            diff=data.get("diff"),
+        )
+        return jsonify({"proposal": prop}), 201
+
+    patient_id = request.args.get("patient_id")
+    status = request.args.get("status", "pending")
+    proposals_list = context_db.list_proposals(patient_id=patient_id, status=status)
+    return jsonify({"proposals": proposals_list, "count": len(proposals_list)})
+
+
+@bp.route("/api/v1/proposals/<proposal_id>", methods=["GET"])
+def api_v1_proposal_detail(proposal_id):
+    """Retrieve detailed proposal object."""
+    prop = context_db.get_proposal(proposal_id)
+    if not prop:
+        return jsonify({"error": "Proposal not found"}), 404
+    return jsonify({"proposal": prop})
+
+
+@bp.route("/api/v1/proposals/<proposal_id>/accept", methods=["POST"])
+def api_v1_proposal_accept(proposal_id):
+    """
+    Doctor Approval Action:
+    Commits proposed updates to live clinical records (artifacts, logs, tickets)
+    and records audit event.
+    """
+    try:
+        result = context_db.accept_proposal(proposal_id)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@bp.route("/api/v1/proposals/<proposal_id>/reject", methods=["POST"])
+def api_v1_proposal_reject(proposal_id):
+    """Doctor Rejection Action: Marks proposal rejected without modifying clinical records."""
+    data = request.get_json(silent=True) or {}
+    reason = data.get("reason")
+    try:
+        result = context_db.reject_proposal(proposal_id, reason=reason)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
 
 # ── Rich Project Management APIs ──────────────────────────────────────────────
 
@@ -500,92 +583,46 @@ def project_tasks(project_id: int):
 @bp.route("/api/tasks", methods=["GET", "POST"])
 def tasks():
     if request.method == "POST":
-        data = request.get_json(force=True) or {}
+        data = request.get_json(silent=True) or {}
         title = (data.get("title") or "").strip()
-        project_id = data.get("project_id")
         if not title:
             return jsonify({"error": "Task title is required"}), 400
 
-        task = db.create_task(
-            project_id=project_id,
+        ticket = context_db.create_ticket(
+            patient_id=data.get("patient_id"),
             title=title,
             description=data.get("description", ""),
-            status=data.get("status", "todo"),
             priority=data.get("priority", "medium"),
-            due_date=data.get("due_date", ""),
-            story_points=data.get("story_points", 0),
-            acceptance_criteria=data.get("acceptance_criteria", ""),
-            assignee=data.get("assignee", ""),
+            status=data.get("status", "todo"),
+            due_date=data.get("due_date"),
         )
-        return jsonify(task), 201
+        return jsonify(ticket), 201
 
-    project_id = request.args.get("project_id", type=int)
+    patient_id = request.args.get("patient_id")
     status = request.args.get("status")
-    priority = request.args.get("priority")
-    search = request.args.get("search") or request.args.get("q")
-
-    task_list = db.get_tasks(
-        project_id=project_id,
-        status=status,
-        priority=priority,
-        search=search,
-    )
-    return jsonify({"tasks": task_list, "count": len(task_list)})
+    ticket_list = context_db.list_tickets(patient_id=patient_id, status=status)
+    return jsonify({"tasks": ticket_list, "count": len(ticket_list)})
 
 
 @bp.route("/api/tasks/metrics", methods=["GET"])
 def task_metrics():
-    project_id = request.args.get("project_id", type=int)
+    all_tickets = context_db.list_tickets()
+    todo_cnt = sum(1 for t in all_tickets if t["status"] in ("todo", "open"))
+    in_progress_cnt = sum(1 for t in all_tickets if t["status"] == "in_progress")
+    review_cnt = sum(1 for t in all_tickets if t["status"] in ("review", "under_review"))
+    done_cnt = sum(1 for t in all_tickets if t["status"] == "done")
+    return jsonify({
+        "total": len(all_tickets),
+        "todo": todo_cnt,
+        "in_progress": in_progress_cnt,
+        "review": review_cnt,
+        "done": done_cnt,
+    })
     metrics = db.get_sprint_metrics(project_id)
     return jsonify(metrics)
 
 
-@bp.route("/api/tools/breakdown", methods=["POST"])
-def tool_breakdown():
-    data = request.get_json(force=True) or {}
-    project_id = data.get("project_id")
-    prd_text = data.get("prd_text")
-    conversation_id = data.get("conversation_id")
-    target_persona = data.get("target_persona")
-    story_count = data.get("story_count")
-    preview_only = bool(data.get("preview_only", False))
 
-    try:
-        from tools.story_decomposer import decompose_prd_to_stories
-        res = decompose_prd_to_stories(
-            project_id=project_id,
-            prd_text=prd_text,
-            conversation_id=conversation_id,
-            target_persona=target_persona,
-            story_count=story_count,
-            preview_only=preview_only,
-        )
-        if not res.get("success"):
-            return jsonify(res), 400
-        return jsonify(res), 200
-    except Exception as e:
-        return jsonify({"success": False, "error": f"Story decomposition failed: {str(e)}"}), 500
-
-
-@bp.route("/api/tools/breakdown/commit", methods=["POST"])
-def tool_breakdown_commit():
-    data = request.get_json(force=True) or {}
-    project_id = data.get("project_id")
-    stories = data.get("stories") or []
-    if not isinstance(stories, list) or not stories:
-        return jsonify({"success": False, "error": "No stories provided for commit."}), 400
-
-    try:
-        from tools.story_decomposer import commit_decomposed_stories
-        created_tasks = commit_decomposed_stories(project_id, stories)
-        return jsonify({
-            "success": True,
-            "count": len(created_tasks),
-            "created_tasks": created_tasks,
-            "project_id": project_id,
-        }), 200
-    except Exception as e:
-        return jsonify({"success": False, "error": f"Failed to commit stories: {str(e)}"}), 500
 
 
 @bp.route("/api/tools/execute_action", methods=["POST"])
@@ -704,20 +741,34 @@ def api_applied_actions():
     })
 
 
-@bp.route("/api/tasks/<int:task_id>", methods=["PATCH", "DELETE"])
-def task_detail(task_id: int):
+@bp.route("/api/tasks/<task_id>", methods=["PATCH", "DELETE"])
+def task_detail(task_id: str):
     if request.method == "PATCH":
-        data = request.get_json(force=True) or {}
-        updated = db.update_task(task_id, **data)
-        if not updated:
-            return jsonify({"error": "Task not found"}), 404
-        return jsonify(updated)
+        data = request.get_json(silent=True) or {}
+        updated = context_db.update_ticket(str(task_id), data)
+        if updated:
+            return jsonify(updated)
+        try:
+            int_id = int(task_id)
+            updated = db.update_task(int_id, **data)
+            if updated:
+                return jsonify(updated)
+        except Exception:
+            pass
+        return jsonify({"error": "Task not found"}), 404
 
     elif request.method == "DELETE":
-        ok = db.delete_task(task_id)
-        if not ok:
-            return jsonify({"error": "Task not found"}), 404
-        return jsonify({"status": "deleted", "id": task_id})
+        ok = context_db.delete_ticket(str(task_id))
+        if ok:
+            return jsonify({"status": "deleted", "id": task_id})
+        try:
+            int_id = int(task_id)
+            ok = db.delete_task(int_id)
+            if ok:
+                return jsonify({"status": "deleted", "id": task_id})
+        except Exception:
+            pass
+        return jsonify({"error": "Task not found"}), 404
 
 
 # ── LLM / AI Provider Settings ────────────────────────────────────────────────
@@ -891,287 +942,205 @@ def api_workspace_context():
     return jsonify(ctx)
 
 
-# ── PM AI Chat & Conversations ────────────────────────────────────────────────
+# ── Practice Dashboard & Scheduling APIs ──────────────────────────────────────
 
-def _build_pm_system_prompt(project_id: int | None = None, user_query: str | None = None) -> str:
+@bp.route("/api/v1/dashboard/stats", methods=["GET"])
+def api_v1_dashboard_stats():
+    """Returns aggregated real-time practice stats for HomeView and clinical context."""
+    stats = context_db.get_practice_summary_stats()
+    return jsonify(stats)
+
+
+@bp.route("/api/v1/appointments", methods=["GET", "POST"])
+def api_v1_appointments():
+    """Lists appointments for a date/patient or schedules a new one."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        patient_id = data.get("patient_id")
+        scheduled_time = data.get("scheduled_time")
+        if not patient_id or not scheduled_time:
+            return jsonify({"error": "patient_id and scheduled_time are required"}), 400
+
+        appt = context_db.create_appointment(
+            patient_id=patient_id,
+            scheduled_time=scheduled_time,
+            duration_minutes=int(data.get("duration_minutes", 15)),
+            appointment_type=data.get("appointment_type", "follow_up"),
+            reason=data.get("reason", ""),
+        )
+        return jsonify({"appointment": appt}), 201
+
+    date_str = request.args.get("date")
+    patient_id = request.args.get("patient_id")
+    appts = context_db.list_appointments(date_str=date_str, patient_id=patient_id)
+    return jsonify({"appointments": appts})
+
+
+@bp.route("/api/v1/appointments/<appointment_id>", methods=["PATCH", "DELETE"])
+def api_v1_appointment_detail(appointment_id):
+    if request.method == "DELETE":
+        ok = context_db.delete_appointment(appointment_id)
+        if not ok:
+            return jsonify({"error": "Appointment not found"}), 404
+        return jsonify({"status": "deleted", "id": appointment_id})
+
+    data = request.get_json(silent=True) or {}
+    updated = context_db.update_appointment(appointment_id, data)
+    if not updated:
+        return jsonify({"error": "Appointment not found or no valid fields provided"}), 404
+    return jsonify({"appointment": updated})
+
+
+# ── Clinical Copilot Chat Sessions & SSE Streaming ────────────────────────────
+
+@bp.route("/api/v1/chat/sessions", methods=["GET", "POST"])
+def api_v1_chat_sessions():
+    """Lists or creates clinical consultation sessions in context.db."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        title = (data.get("title") or "Clinical Consultation").strip()
+        patient_id = data.get("patient_id")
+        session = context_db.create_chat_session(title=title, patient_id=patient_id)
+        return jsonify({"session": session}), 201
+
+    patient_id = request.args.get("patient_id")
+    sessions = context_db.list_chat_sessions(patient_id=patient_id)
+    return jsonify({"sessions": sessions})
+
+
+@bp.route("/api/v1/chat/sessions/<session_id>", methods=["GET", "DELETE"])
+def api_v1_chat_session_detail(session_id):
+    """Retrieves chronological session history or deletes a session."""
+    if request.method == "DELETE":
+        ok = context_db.delete_chat_session(session_id)
+        if not ok:
+            return jsonify({"error": "Session not found"}), 404
+        return jsonify({"status": "deleted", "id": session_id})
+
+    session = context_db.get_chat_session(session_id)
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+    return jsonify({
+        "session": session,
+        "messages": session.get("messages", []),
+    })
+
+
+@bp.route("/api/v1/chat/stream", methods=["POST"])
+def api_v1_chat_stream():
     """
-    Build the enterprise-grade professional PM Copilot behavioural prompt.
-    Equips the model with principal PM frameworks, zero-fluff communication,
-    and deep contextual grounding in the active project and live workspace context.
+    Real-time SSE streaming clinical copilot chat endpoint.
+    Streams tokens with live practice/patient temporal awareness.
     """
-    prompt = [
-        "You are PM Copilot, a Staff / Principal Product Manager and Technical Architect assisting an enterprise product team.",
-        "Your responses must be structured, rigorous, evidence-driven, and immediately executive-ready. Avoid conversational pleasantries, generic advice, or empty filler.",
-        "",
-        "### BEHAVIOURAL & OPERATIONAL STANDARDS:",
-        "1. **First-Principles Problem Formulation**: Dissect user pain and business goals before jumping to solutions. Clearly isolate assumptions from validated requirements.",
-        "2. **Standardized PRD Architecture**: When asked to draft a PRD or feature spec, structure it with:",
-        "   - **Executive Summary & Problem Statement**: What problem are we solving, for whom, and why now?",
-        "   - **Target Personas & User Journeys**: Precise workflows and friction points.",
-        "   - **Goals & Non-Goals**: Explicit boundaries defining what is strictly out-of-scope for this phase.",
-        "   - **User Stories & Acceptance Criteria**: Format criteria in Gherkin syntax (`Given [context] / When [action] / Then [expected outcome]`).",
-        "   - **Technical & Security Considerations**: API design, latency budgets, data protection, and edge cases.",
-        "   - **Success Metrics (KPIs)**: 1 Primary North Star metric + 2 Guardrail/Counter-metrics (to prevent degradation).",
-        "3. **Decision & Trade-Off Analysis**: When evaluating architectural or product decisions, use a trade-off matrix evaluating: Value/Impact, Engineering Complexity, Operational Maintenance, and Reversibility (Two-way vs One-way door).",
-        "4. **Roadmap & Sprint Execution**: Break releases into MoSCoW (Must, Should, Could, Won't have) buckets with clear dependency sequencing.",
-        "5. **Format**: Use clean GitHub-flavored markdown with bold headers, concise bullet points, and markdown tables for data comparisons.",
-        "6. **Plain-Text Math & Symbols (No LaTeX)**: This chat UI renders formatted Markdown tables and text, NOT LaTeX math. NEVER use LaTeX dollar-sign notation (e.g. $X^+$, $\\le 8\\%$, $> 15\\%$, $\\approx$). Instead use clean plain-text and unicode equivalents: write `≤ 8%`, `> 15%`, `≥ 90%`, `≈ 5%`, `± 2`. Use standard markdown tables with clean pipes `| Col 1 | Col 2 |`.",
-        "7. **Tool Suite Awareness & Command Prefixes**: You are operating inside the PM Tool Workspace with full awareness of available tools. Recommend the appropriate command prefix when relevant:",
-        "   - `/query <intent>`: Connected SQLite Database Query Assistant. Synthesizes guarded, read-only SELECT queries based on connected schemas.",
-        "   - `/plan <initiative>`: Sprint Planning & Roadmap Studio with phase milestones and 1-click action proposals.",
-        "   - `/breakdown <feature>`: Decomposes PRDs and features into granular sprint user stories.",
-        "   - `/data <topic>`: Inspects connected dataset distributions, column metrics, and outliers in Data Studio.",
-        "   - `/prd <title>`: Generates formal Product Requirement Documents.",
-        "   - `/metrics <feature>`: Defines North Star KPIs, counter-metrics, and telemetry event specifications.",
-        "   - `/search <query>`: Semantic knowledge base search across indexed company documents.",
-        "   - `/summarize <doc>`: Extracts executive summaries, architecture specs, and decision logs.",
-        "8. **Action Proposals in Chat**: Whenever discussing concrete deliverables, tasks, sprint stories, or when the user says 'make a ticket', 'add a task', or 'create a story', ALWAYS propose each ticket using an interactive ```action:create_ticket fenced JSON block:",
-        "   ```action:create_ticket",
-        "   {",
-        "     \"title\": \"Feature or bug title\",",
-        "     \"description\": \"Concise engineering description\",",
-        "     \"priority\": \"high\",",
-        "     \"story_points\": 3,",
-        "     \"ticket_type\": \"internal\",",
-        "     \"acceptance_criteria\": \"Given [context] / When [action] / Then [outcome]\"",
-        "   }",
-        "   ```",
-        "   Do not simulate silent creation; always propose the action card so the user can review and 1-click apply it to the Kanban Sprint Board.",
-        "9. **Actionable Suggestions & Next-Step Chips (Prompt Suggestions)**: At the end of your response, always offer 1-2 interactive prompt suggestion chips using markdown format: `[⚡ /query <intent>](prompt:/query <intent>)`, `[📝 /breakdown <label>](prompt:/breakdown <suggested prompt>)`, `[⚡ /plan <label>](prompt:/plan <suggested prompt>)`, or `[📊 /data <label>](prompt:/data <suggested prompt>)`.",
-    ]
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message", "")).strip()
+    session_id = data.get("session_id")
+    patient_id = data.get("patient_id")
 
-    try:
-        ws_ctx = workspace_context.get_workspace_context(project_id=project_id, user_query=user_query)
-        prompt.append("\n" + workspace_context.format_workspace_context_for_prompt(ws_ctx, active_project_id=project_id))
-    except Exception as e:
-        print("[Workspace context extraction warning]", e)
+    if not message:
+        return jsonify({"error": "Message cannot be empty."}), 400
 
-    try:
-        import data_engine
-        analytics_ctx = data_engine.get_analytics_context_for_llm(project_id=project_id)
-        if analytics_ctx:
-            prompt.append("\n" + analytics_ctx)
-    except Exception:
-        pass
+    def event_stream():
+        for chunk in clinical_chat.stream_clinical_chat(
+            message=message,
+            session_id=session_id,
+            patient_id=patient_id,
+        ):
+            yield chunk
 
-    return "\n".join(prompt)
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
+
+@bp.route("/api/v1/chat", methods=["POST"])
+def api_v1_chat_sync():
+    """Synchronous clinical chat endpoint."""
+    data = request.get_json(silent=True) or {}
+    message = str(data.get("message", "")).strip()
+    session_id = data.get("session_id")
+    patient_id = data.get("patient_id")
+
+    if not message:
+        return jsonify({"error": "Message cannot be empty."}), 400
+
+    result = clinical_chat.generate_clinical_chat_sync(
+        message=message,
+        session_id=session_id,
+        patient_id=patient_id,
+    )
+    if "error" in result:
+        return jsonify({"error": result["error"]}), 400
+    return jsonify(result)
+
+
+# ── Legacy Chat Route Compatibility (context.db backed) ───────────────────────
 
 @bp.route("/api/conversations", methods=["GET", "POST"])
 def api_conversations():
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "New Conversation").strip()
-        project_id = data.get("project_id")
-        conv = ai_db.create_conversation(title=title, project_id=project_id)
-        return jsonify(conv), 201
+        title = (data.get("title") or "Clinical Consultation").strip()
+        patient_id = data.get("patient_id")
+        session = context_db.create_chat_session(title=title, patient_id=patient_id)
+        return jsonify({"conversation": session, **session}), 201
 
-    project_id = request.args.get("project_id", type=int)
-    convs = ai_db.list_conversations(project_id=project_id)
-    return jsonify({"conversations": convs})
+    patient_id = request.args.get("patient_id")
+    sessions = context_db.list_chat_sessions(patient_id=patient_id)
+    return jsonify({"conversations": sessions})
 
 
 @bp.route("/api/conversations/<conv_id>", methods=["GET", "PATCH", "DELETE"])
 def api_conversation_detail(conv_id):
-    if request.method == "GET":
-        conv = ai_db.get_conversation(conv_id)
-        if not conv:
-            return jsonify({"error": "Conversation not found"}), 404
-        messages = ai_db.get_conversation_messages(conv_id)
-        applied_keys = ai_db.get_applied_action_keys(conv_id)
-        return jsonify({
-            "conversation": conv,
-            "messages": messages,
-            "applied_action_keys": applied_keys,
-        })
-
-    elif request.method == "PATCH":
-        data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "").strip()
-        if not title:
-            return jsonify({"error": "Title cannot be empty"}), 400
-        ok = ai_db.rename_conversation(conv_id, title)
-        if not ok:
-            return jsonify({"error": "Conversation not found"}), 404
-        return jsonify({"id": conv_id, "title": title})
-
-    elif request.method == "DELETE":
-        ok = ai_db.delete_conversation(conv_id)
+    if request.method == "DELETE":
+        ok = context_db.delete_chat_session(conv_id)
         if not ok:
             return jsonify({"error": "Conversation not found"}), 404
         return jsonify({"status": "deleted", "id": conv_id})
 
+    session = context_db.get_chat_session(conv_id)
+    if not session:
+        return jsonify({"error": "Conversation not found"}), 404
+    return jsonify({
+        "conversation": session,
+        "messages": session.get("messages", []),
+        "applied_action_keys": [],
+    })
+
 
 @bp.route("/api/chat", methods=["POST"])
 def api_chat():
-    """
-    Core AI Chat Endpoint:
-    Receives message, resolves/creates conversation thread, records user message in ai_context.db,
-    dispatches to LLM Gateway, records assistant response, and returns response payload.
-    """
+    """Legacy chat endpoint redirected to Agent-D Clinical Copilot."""
     data = request.get_json(silent=True) or {}
     message = str(data.get("message", "")).strip()
     conv_id = data.get("conversation_id")
-    project_id = data.get("project_id")
+    patient_id = data.get("patient_id")
 
     if not message:
         return jsonify({"error": "Message cannot be empty."}), 400
 
-    # 1. Resolve or create conversation in ai_db
-    conv = None
-    if conv_id:
-        conv = ai_db.get_conversation(conv_id)
-    if not conv:
-        first_title = message[:35].strip()
-        if len(message) > 35:
-            first_title += "..."
-        conv = ai_db.create_conversation(title=first_title or "New Chat", project_id=project_id)
-        conv_id = conv["id"]
-
-    # 2. Add user message to conversation memory in ai_context.db
-    ai_db.add_message(conversation_id=conv_id, role="user", content=message)
-
-    # 3. Retrieve recent history for context
-    history = ai_db.get_recent_history_for_llm(conv_id, max_messages=20)
-    # The history currently includes the message we just added as the last item,
-    # so we pass history[:-1] as prior turns and current message as latest turn
-    prior_turns = history[:-1] if len(history) > 1 else []
-
-    # 4. Construct system prompt with active project context
-    target_proj_id = conv.get("project_id") or project_id
-    system_prompt = _build_pm_system_prompt(project_id=target_proj_id, user_query=message)
-
-    # 4b. Command-specific directive injection
-    lower_msg = message.lower().strip()
-    clean_query = message
-    if lower_msg.startswith("/search"):
-        clean_query = message[7:].strip() or message
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /search (Knowledge Base Retrieval Mode)\n"
-            "Analyze the retrieved document chunks below. Present the relevant evidence, "
-            "document sources, key technical quotes, and an executive answer grounded in company knowledge."
-        )
-    elif lower_msg.startswith("/prd"):
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /prd (PRD Studio Mode)\n"
-            "Draft a comprehensive, executive-ready Product Requirement Document covering: "
-            "Problem Statement, Target Personas, Goals & Non-Goals, Detailed User Stories with Acceptance Criteria (Gherkin format), "
-            "Technical Architecture, Security Considerations, and Success KPIs."
-        )
-    elif lower_msg.startswith("/plan"):
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /plan (Sprint Planning & Roadmap Studio Mode)\n"
-            "Structure your roadmap with clear, distinct Phase Header Blocks:\n"
-            "- `### 📌 Phase 1: MVP Core Architecture`\n"
-            "- `### 🚀 Phase 2: Feature Expansion & Enhancement`\n"
-            "- `### ⚡ Phase 3: Enterprise Scale & Hardening`\n"
-            "For key sprint deliverables and user stories across these phases, generate interactive ```action:create_ticket blocks "
-            "with title, description, priority ('urgent'|'high'|'med'|'low'), story_points, ticket_type ('internal'|'external'), "
-            "and Gherkin acceptance criteria so the product manager can review and 1-click apply them directly to the Kanban Sprint Board."
-        )
-    elif lower_msg.startswith("/metrics"):
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /metrics (KPI & Telemetry Mode)\n"
-            "Define the Primary North Star Metric, secondary funnel metrics, and 2 guardrail metrics. "
-            "Provide an exact analytics tracking specification with event names, triggers, and payload properties."
-        )
-    elif lower_msg.startswith("/summarize"):
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /summarize (Document Summarizer Mode)\n"
-            "Synthesize an executive-ready document summary structured into: "
-            "1. Executive Summary & Objective, 2. Core Architecture & Specs, 3. Decisions & Trade-Offs, "
-            "4. Success Metrics, 5. Identified Risks, and 6. Actionable Next Steps."
-        )
-    elif lower_msg.startswith("/data") or lower_msg.startswith("/insights") or lower_msg.startswith("/kpi"):
-        clean_query = re.sub(r"^/(?:data|insights|kpi)\s*", "", message, flags=re.IGNORECASE).strip() or message
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /data (Data Studio & KPI Insights Mode)\n"
-            "Analyze the connected business datasets, schema metrics, and dashboard KPIs provided in the context. "
-            "Synthesize an executive data insights brief: 1. Core Trends & Findings, 2. Key Metrics & Outliers, "
-            "3. Root-Cause Hypotheses, 4. Actionable Next Steps. Cite specific dataset tables, column dimensions, and values."
-        )
-    elif lower_msg.startswith("/query"):
-        clean_query = re.sub(r"^/query\s*", "", message, flags=re.IGNORECASE).strip() or message
-        system_prompt += (
-            "\n\n### SPECIAL DIRECTIVE: /query (Dataset SQL Query Assistant Mode)\n"
-            "The user wishes to query or extract specific metrics from their connected business dataset(s).\n"
-            "1. Inspect the connected datasets and table/column schemas provided in the context.\n"
-            "2. Propose a precise, safe, read-only SQLite SELECT query formatted in a ```sql fenced code block that fulfills the user's intent.\n"
-            "3. Clearly explain the logic of the query: which tables are referenced, joins (if applicable), WHERE filters, GROUP BY aggregations, and ORDER BY limits.\n"
-            "4. Describe expected output columns and potential edge cases (e.g. NULL handling, date format matching).\n"
-            "5. Provide actionable follow-up prompt chips: `[⚡ /query <refinement>](prompt:/query <refinement>)` or `[📊 /data <dataset>](prompt:/data <dataset>)`."
-        )
-
-    # 4c. Ticket Request Detection (e.g. "make a ticket", "create a story", "add a task")
-    ticket_triggers = ("make a ticket", "create a ticket", "add a ticket", "new ticket", "create ticket",
-                       "make ticket", "make task", "create task", "add task", "new task", "add to board",
-                       "add to backlog", "create user story", "create story")
-    if any(trigger in lower_msg for trigger in ticket_triggers):
-        system_prompt += (
-            "\n\n### USER TICKET REQUEST DETECTED:\n"
-            "The user explicitly asked to create or propose tickets/tasks. "
-            "Formulate the tickets with full engineering rigor and output each proposed ticket inside an "
-            "```action:create_ticket fenced JSON block so the user can review and 1-click apply it to the Sprint Board."
-        )
-
-    # 4c. Retrieve verified evidence from local company documents (RAG)
-    retrieved_chunks = []
-    try:
-        from rag import engine as rag_engine
-        retrieved_chunks = rag_engine.retrieve_context(
-            query=clean_query,
-            project_id=target_proj_id,
-            top_k=6 if lower_msg.startswith("/search") else 4,
-        )
-        if retrieved_chunks:
-            system_prompt += "\n" + rag_engine.format_retrieved_context_for_prompt(retrieved_chunks)
-    except Exception as e:
-        print("[RAG Retrieval warning]", e)
-
-    # 5. Call LLM Gateway
-    result = llm_gateway.call_llm(
-        db_module=db,
-        system_prompt=system_prompt,
+    result = clinical_chat.generate_clinical_chat_sync(
         message=message,
-        history=prior_turns,
+        session_id=conv_id,
+        patient_id=patient_id,
     )
-
     if "error" in result:
-        return jsonify({
-            "error": result.get("error"),
-            "setup_required": result.get("setup_required", False),
-            "conversation_id": conv_id,
-            "conversation_title": conv.get("title"),
-        }), 400 if result.get("setup_required") else 502
-
-    # 6. Record assistant response in ai_context.db
-    reply_text = result.get("response", "")
-    model_meta = f"{result.get('provider', '')} · {result.get('model', '')}"
-    ai_db.add_message(
-        conversation_id=conv_id,
-        role="assistant",
-        content=reply_text,
-        model_info=model_meta,
-    )
-
-    sources = [
-        {
-            "filename": c.get("filename"),
-            "section": c.get("section_title"),
-            "file_path": c.get("file_path"),
-        }
-        for c in retrieved_chunks
-    ] if retrieved_chunks else []
+        return jsonify({"error": result["error"]}), 400
 
     return jsonify({
-        "response": reply_text,
-        "provider": result.get("provider"),
-        "model": result.get("model"),
-        "conversation_id": conv_id,
-        "conversation_title": conv.get("title"),
-        "sources": sources,
+        "response": result.get("response", ""),
+        "provider": "gemini",
+        "model": result.get("model", "clinical-copilot"),
+        "conversation_id": result.get("session_id", conv_id),
+        "conversation_title": "Clinical Consultation",
+        "sources": [],
     })
-
 
 # ── Knowledge Base & Local Documents APIs ─────────────────────────────────────
 
@@ -1405,257 +1374,6 @@ def api_export_markdown():
         download_name=f"{safe_name}.md",
         mimetype="text/markdown"
     )
-
-
-# ── Living Documents & Contextual Artifacts Studio APIs ───────────────────────
-
-@bp.route("/api/artifacts", methods=["GET"])
-def api_artifacts_list():
-    project_id = request.args.get("project_id", type=int)
-    doc_type = request.args.get("doc_type")
-    search = request.args.get("search")
-    is_pinned_raw = request.args.get("is_pinned")
-    is_pinned = None
-    if is_pinned_raw is not None:
-        is_pinned = is_pinned_raw.lower() in ("1", "true")
-    limit = min(request.args.get("limit", default=100, type=int), 200)
-    offset = max(request.args.get("offset", default=0, type=int), 0)
-
-    artifacts = artifacts_db.list_artifacts(
-        project_id=project_id,
-        doc_type=doc_type,
-        search=search,
-        is_pinned=is_pinned,
-        limit=limit,
-        offset=offset
-    )
-    stats = artifacts_db.get_artifacts_summary_stats()
-    return jsonify({"artifacts": artifacts, "count": len(artifacts), "stats": stats})
-
-
-@bp.route("/api/artifacts", methods=["POST"])
-def api_artifacts_create():
-    data = request.get_json(silent=True) or {}
-    title = data.get("title", "").strip() or "Untitled Document"
-    content = data.get("content", "")
-    doc_type = data.get("doc_type", "document")
-    project_id = data.get("project_id")
-    if project_id is not None:
-        try:
-            project_id = int(project_id)
-            if project_id == 0:
-                project_id = None
-        except (ValueError, TypeError):
-            project_id = None
-    tags = data.get("tags") or []
-    summary = data.get("summary", "")
-    is_pinned = bool(data.get("is_pinned", False))
-
-    artifact = artifacts_db.create_artifact(
-        title=title,
-        content=content,
-        doc_type=doc_type,
-        project_id=project_id,
-        tags=tags,
-        summary=summary,
-        is_pinned=1 if is_pinned else 0
-    )
-    return jsonify({"artifact": artifact, "success": True}), 201
-
-
-@bp.route("/api/artifacts/<int:artifact_id>", methods=["GET"])
-def api_artifacts_get(artifact_id: int):
-    artifact = artifacts_db.get_artifact(artifact_id)
-    if not artifact:
-        return jsonify({"error": f"Artifact {artifact_id} not found"}), 404
-    return jsonify({"artifact": artifact, "success": True})
-
-
-@bp.route("/api/artifacts/<int:artifact_id>", methods=["PUT"])
-def api_artifacts_update(artifact_id: int):
-    data = request.get_json(silent=True) or {}
-    create_version = bool(data.get("create_version", False))
-    version_summary = data.get("version_summary", "")
-
-    project_id = data.get("project_id")
-    if project_id is not None:
-        try:
-            project_id = int(project_id)
-        except (ValueError, TypeError):
-            project_id = None
-
-    updated = artifacts_db.update_artifact(
-        artifact_id=artifact_id,
-        title=data.get("title"),
-        content=data.get("content"),
-        doc_type=data.get("doc_type"),
-        project_id=project_id,
-        tags=data.get("tags"),
-        summary=data.get("summary"),
-        is_pinned=data.get("is_pinned"),
-        create_version=create_version,
-        version_summary=version_summary
-    )
-    if not updated:
-        return jsonify({"error": f"Artifact {artifact_id} not found"}), 404
-    return jsonify({"artifact": updated, "success": True})
-
-
-@bp.route("/api/artifacts/<int:artifact_id>", methods=["DELETE"])
-def api_artifacts_delete(artifact_id: int):
-    ok = artifacts_db.delete_artifact(artifact_id)
-    if not ok:
-        return jsonify({"error": f"Artifact {artifact_id} not found"}), 404
-    return jsonify({"success": True, "id": artifact_id})
-
-
-@bp.route("/api/artifacts/<int:artifact_id>/pin", methods=["POST"])
-def api_artifacts_toggle_pin(artifact_id: int):
-    updated = artifacts_db.toggle_pin_artifact(artifact_id)
-    if not updated:
-        return jsonify({"error": f"Artifact {artifact_id} not found"}), 404
-    return jsonify({"artifact": updated, "is_pinned": updated["is_pinned"], "success": True})
-
-
-@bp.route("/api/artifacts/<int:artifact_id>/versions", methods=["GET"])
-def api_artifacts_versions_list(artifact_id: int):
-    versions = artifacts_db.list_artifact_versions(artifact_id)
-    return jsonify({"versions": versions, "count": len(versions), "success": True})
-
-
-@bp.route("/api/artifacts/<int:artifact_id>/versions/restore", methods=["POST"])
-def api_artifacts_versions_restore(artifact_id: int):
-    data = request.get_json(silent=True) or {}
-    version_num = data.get("version_num")
-    if not version_num:
-        return jsonify({"error": "version_num is required"}), 400
-
-    restored = artifacts_db.restore_artifact_version(artifact_id, int(version_num))
-    if not restored:
-        return jsonify({"error": f"Version {version_num} not found for artifact {artifact_id}"}), 404
-    return jsonify({"artifact": restored, "success": True})
-
-
-@bp.route("/api/artifacts/from-chat", methods=["POST"])
-def api_artifacts_from_chat():
-    """Promote transient AI response or copilot proposal into a permanent living document."""
-    data = request.get_json(silent=True) or {}
-    content = (data.get("content") or "").strip()
-    if not content:
-        return jsonify({"error": "Content cannot be empty"}), 400
-
-    title = (data.get("title") or "").strip()
-    doc_type = (data.get("doc_type") or "").strip().lower()
-    project_id = data.get("project_id")
-
-    # Smart heuristics if title/type not provided
-    lines = [l.strip() for l in content.splitlines() if l.strip()]
-    if not title:
-        for line in lines:
-            if line.startswith("#"):
-                title = line.lstrip("#").strip()
-                break
-        if not title and lines:
-            title = lines[0][:60]
-        if not title:
-            title = "Copilot Generated Document"
-
-    if not doc_type:
-        low = (title + "\n" + content[:500]).lower()
-        if "prd" in low or "product requirement" in low:
-            doc_type = "prd"
-        elif "rfc" in low or "request for comment" in low:
-            doc_type = "rfc"
-        elif "architecture" in low or "system design" in low:
-            doc_type = "architecture"
-        elif "brief" in low or "sprint brief" in low:
-            doc_type = "brief"
-        elif "story" in low or "breakdown" in low:
-            doc_type = "breakdown"
-        else:
-            doc_type = "document"
-
-    artifact = artifacts_db.create_artifact(
-        title=title,
-        content=content,
-        doc_type=doc_type,
-        project_id=project_id,
-        tags=["ai-copilot", doc_type],
-        summary="Synthesized from AI Copilot generation"
-    )
-    return jsonify({"artifact": artifact, "success": True, "message": "Promoted to Living Artifact"}), 201
-
-
-@bp.route("/api/artifacts/<int:artifact_id>/export/<export_format>", methods=["GET", "POST"])
-def api_artifacts_export(artifact_id: int, export_format: str):
-    """Export living artifact directly to DOCX, Markdown (.md), or styled HTML."""
-    artifact = artifacts_db.get_artifact(artifact_id)
-    if not artifact:
-        return jsonify({"error": f"Artifact {artifact_id} not found"}), 404
-
-    title = artifact["title"]
-    content = artifact["content"]
-    safe_name = "".join(c for c in title if c.isalnum() or c in (" ", "_", "-")).rstrip() or "Document"
-
-    fmt = export_format.lower()
-    if fmt in ("docx", "doc"):
-        from tools.document_generator import generate_docx_from_markdown
-        meta = {
-            "Document Title": title,
-            "Document Type": artifact["doc_type"].upper(),
-            "Word Count": str(artifact["word_count"]),
-            "Updated At": artifact["updated_at"]
-        }
-        buf = generate_docx_from_markdown(title=title, markdown_content=content, metadata=meta)
-        return send_file(
-            buf,
-            as_attachment=True,
-            download_name=f"{safe_name}.docx",
-            mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-    elif fmt in ("md", "markdown"):
-        from io import BytesIO
-        buf = BytesIO(content.encode("utf-8"))
-        return send_file(
-            buf,
-            as_attachment=True,
-            download_name=f"{safe_name}.md",
-            mimetype="text/markdown"
-        )
-    elif fmt in ("html", "htm"):
-        from io import BytesIO
-        import html
-        html_doc = f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>{html.escape(title)}</title>
-  <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 860px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }}
-    h1, h2, h3 {{ color: #111; }}
-    pre, code {{ background: #f4f4f4; border-radius: 4px; font-family: Consolas, monospace; }}
-    pre {{ padding: 12px; overflow-x: auto; }}
-    table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
-    th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }}
-    th {{ background: #f8f8f8; }}
-  </style>
-</head>
-<body>
-  <h1>{html.escape(title)}</h1>
-  <p><em>Type: {html.escape(artifact['doc_type'].upper())} | Words: {artifact['word_count']} | Updated: {artifact['updated_at']}</em></p>
-  <hr>
-  <pre style="white-space: pre-wrap; font-family: inherit;">{html.escape(content)}</pre>
-</body>
-</html>"""
-        buf = BytesIO(html_doc.encode("utf-8"))
-        return send_file(
-            buf,
-            as_attachment=True,
-            download_name=f"{safe_name}.html",
-            mimetype="text/html"
-        )
-    else:
-        return jsonify({"error": f"Unsupported export format: {export_format}"}), 400
 
 
 # ── Data Studio & Dashboards APIs ──────────────────────────────────────────────
@@ -2036,366 +1754,5 @@ def api_analytics_forecast():
         return jsonify(res), 200
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
-
-
-# ── Outposts & External Integrations API ──────────────────────────────────────
-
-@bp.route("/api/outposts", methods=["GET"])
-def api_list_outposts():
-    """List configured outposts with masked credentials."""
-    import db
-    from tools.outposts.security import mask_token
-    configs = db.get_all_outpost_configs()
-    safe_configs = []
-    for c in configs:
-        c_copy = dict(c)
-        raw_tok = c_copy.get("auth_token", "")
-        c_copy["auth_token"] = mask_token(raw_tok)
-        c_copy["has_token"] = bool(raw_tok)
-        safe_configs.append(c_copy)
-    return jsonify({"outposts": safe_configs}), 200
-
-
-@bp.route("/api/outposts/<provider>", methods=["POST"])
-def api_save_outpost(provider):
-    """Save or update outpost credentials with authenticated encryption."""
-    import db
-    from tools.outposts.security import validate_outpost_url, encrypt_token, mask_token
-    data = request.get_json(force=True) or {}
-    base_url = data.get("base_url")
-    auth_token = data.get("auth_token")
-    user_email = data.get("user_email")
-    project_key = data.get("project_key")
-    database_id = data.get("database_id")
-    is_active = data.get("is_active", 1)
-    sync_policy = data.get("sync_policy", "manual")
-
-    if base_url:
-        is_safe, reason = validate_outpost_url(base_url, provider=provider, allow_localhost=True)
-        if not is_safe:
-            return jsonify({"error": f"Invalid outpost endpoint: {reason}", "success": False}), 400
-
-    enc_token = None
-    if auth_token and not auth_token.startswith("••••"):
-        enc_token = encrypt_token(auth_token)
-
-    saved = db.set_outpost_config(
-        provider=provider,
-        base_url=base_url,
-        auth_token=enc_token,
-        user_email=user_email,
-        project_key=project_key,
-        database_id=database_id,
-        is_active=is_active,
-        sync_policy=sync_policy,
-    )
-    if saved:
-        saved["auth_token"] = mask_token(saved.get("auth_token", ""))
-        saved["has_token"] = bool(saved.get("auth_token"))
-    return jsonify({"outpost": saved, "success": True}), 200
-
-
-@bp.route("/api/outposts/<provider>/test", methods=["POST"])
-def api_test_outpost(provider):
-    """Run live diagnostic connectivity and credential test."""
-    import db
-    from adapters.jira_ticket_adapter import JiraTicketAdapter
-    from adapters.notion_document_adapter import NotionDocumentAdapter
-    from adapters.gdocs_document_adapter import GDocsDocumentAdapter
-
-    data = request.get_json(force=True) or {}
-    stored = db.get_outpost_config(provider) or {}
-    base_url = data.get("base_url") or stored.get("base_url", "")
-    auth_token = data.get("auth_token") or stored.get("auth_token", "")
-    user_email = data.get("user_email") or stored.get("user_email", "")
-    project_key = data.get("project_key") or stored.get("project_key", "")
-    database_id = data.get("database_id") or stored.get("database_id", "")
-
-    prov = provider.lower().strip()
-    diag = None
-
-    if prov == "jira":
-        adapter = JiraTicketAdapter(
-            base_url=base_url,
-            user_email=user_email,
-            auth_token=auth_token,
-            project_key=project_key,
-            allow_localhost=True,
-        )
-        diag = adapter.test_connection()
-    elif prov == "notion":
-        adapter = NotionDocumentAdapter(
-            auth_token=auth_token,
-            database_id=database_id,
-            allow_localhost=True,
-        )
-        diag = adapter.test_connection()
-    elif prov in ("gdocs", "google"):
-        adapter = GDocsDocumentAdapter(
-            auth_token=auth_token,
-            user_email=user_email,
-            allow_localhost=True,
-        )
-        diag = adapter.test_connection()
-    else:
-        return jsonify({"error": f"Unsupported outpost provider: {provider}", "success": False}), 400
-
-    db.update_outpost_diagnostic(provider, last_error=None if diag.healthy else diag.message)
-
-    return jsonify({
-        "provider": diag.provider,
-        "healthy": diag.healthy,
-        "latency_ms": diag.latency_ms,
-        "message": diag.message,
-        "details": diag.details,
-        "success": diag.healthy,
-    }), 200
-
-
-@bp.route("/api/outposts/<provider>", methods=["DELETE"])
-def api_delete_outpost(provider):
-    """Delete an outpost configuration."""
-    import db
-    deleted = db.delete_outpost_config(provider)
-    return jsonify({"success": deleted}), 200
-
-
-@bp.route("/api/projects/<int:project_id>/link-outpost", methods=["POST"])
-def api_link_project_outpost(project_id):
-    """Link project to external outpost with pre-sync safety snapshot and board wipe."""
-    import db
-    from tools.outposts.snapshot import create_pre_sync_snapshot
-    from adapters.jira_ticket_adapter import JiraTicketAdapter
-
-    data = request.get_json(force=True) or {}
-    provider = data.get("provider", "jira").lower().strip()
-
-    try:
-        snapshot_res = create_pre_sync_snapshot(project_id=project_id, provider=provider)
-    except Exception as e:
-        return jsonify({"error": f"Failed to create pre-sync safety snapshot: {str(e)}", "success": False}), 500
-
-    sync_res_data = None
-    if provider == "jira":
-        cfg = db.get_outpost_config("jira")
-        if cfg and cfg.get("base_url") and cfg.get("auth_token"):
-            proj_key = data.get("project_key") or cfg.get("project_key")
-            adapter = JiraTicketAdapter(
-                base_url=cfg["base_url"],
-                user_email=cfg.get("user_email", ""),
-                auth_token=cfg["auth_token"],
-                project_key=proj_key,
-                allow_localhost=True,
-            )
-            sync_res = adapter.sync_external(project_id)
-            sync_res_data = sync_res.__dict__
-
-    return jsonify({
-        "success": True,
-        "message": f"Project linked to {provider.upper()}. Existing board archived to safety snapshot.",
-        "snapshot": snapshot_res,
-        "sync_result": sync_res_data,
-    }), 200
-
-
-@bp.route("/api/projects/<int:project_id>/unlink-outpost", methods=["POST"])
-def api_unlink_project_outpost(project_id):
-    """Unlink project from remote outpost dictator."""
-    import db
-    with db.get_db() as conn:
-        with conn:
-            conn.execute(
-                """
-                UPDATE projects
-                SET is_outpost_dictated = 0,
-                    outpost_provider = NULL,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (project_id,),
-            )
-    return jsonify({"success": True, "message": "Project unlinked from outpost."}), 200
-
-
-@bp.route("/api/projects/<int:project_id>/restore-snapshot", methods=["POST"])
-def api_restore_project_snapshot(project_id):
-    """Restore local board from safety backup snapshot."""
-    from tools.outposts.snapshot import restore_pre_sync_snapshot
-    data = request.get_json(force=True) or {}
-    snapshot_path = data.get("snapshot_path")
-    try:
-        res = restore_pre_sync_snapshot(project_id=project_id, snapshot_path=snapshot_path)
-        return jsonify(res), 200
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@bp.route("/api/projects/<int:project_id>/snapshots", methods=["GET"])
-def api_list_project_snapshots(project_id):
-    """List available snapshots for a project."""
-    from tools.outposts.snapshot import list_snapshots
-    res = list_snapshots(project_id=project_id)
-    return jsonify({"snapshots": res}), 200
-
-
-@bp.route("/api/projects/<int:project_id>/board-schema", methods=["GET"])
-def api_get_board_schema(project_id):
-    """Return dynamic board schema (local 4-column or Jira workflow stages)."""
-    import db
-    from adapters.local_ticket_adapter import LocalTicketAdapter
-    from adapters.jira_ticket_adapter import JiraTicketAdapter
-
-    project = db.get_project(project_id)
-    if not project:
-        return jsonify({"error": "Project not found", "success": False}), 404
-
-    is_dictated = project.get("is_outpost_dictated") == 1
-    provider = project.get("outpost_provider")
-
-    if is_dictated and provider == "jira":
-        cfg = db.get_outpost_config("jira")
-        if cfg and cfg.get("base_url") and cfg.get("auth_token"):
-            adapter = JiraTicketAdapter(
-                base_url=cfg["base_url"],
-                user_email=cfg.get("user_email", ""),
-                auth_token=cfg["auth_token"],
-                project_key=cfg.get("project_key", ""),
-                allow_localhost=True,
-            )
-            schema = adapter.get_board_schema(project_id)
-            return jsonify({
-                "provider": schema.provider,
-                "columns": [c.__dict__ for c in schema.columns],
-                "allowed_types": schema.allowed_types,
-                "allowed_labels": schema.allowed_labels,
-                "is_outpost_dictated": True,
-            }), 200
-
-    local_adapter = LocalTicketAdapter()
-    schema = local_adapter.get_board_schema(project_id)
-    return jsonify({
-        "provider": schema.provider,
-        "columns": [c.__dict__ for c in schema.columns],
-        "allowed_types": schema.allowed_types,
-        "allowed_labels": schema.allowed_labels,
-        "is_outpost_dictated": False,
-    }), 200
-
-
-@bp.route("/api/outposts/jira/push-task", methods=["POST"])
-def api_jira_push_task():
-    """Push an existing local task card to Jira."""
-    import db
-    from adapters.jira_ticket_adapter import JiraTicketAdapter
-    from ports.ticket_tracker import CreateTaskPayload
-
-    data = request.get_json(force=True) or {}
-    task_id = data.get("task_id")
-    if not task_id:
-        return jsonify({"error": "task_id is required", "success": False}), 400
-
-    task = db.get_task(task_id)
-    if not task:
-        return jsonify({"error": "Task not found", "success": False}), 404
-
-    cfg = db.get_outpost_config("jira")
-    if not cfg or not cfg.get("base_url") or not cfg.get("auth_token"):
-        return jsonify({"error": "Jira outpost is not configured.", "success": False}), 400
-
-    adapter = JiraTicketAdapter(
-        base_url=cfg["base_url"],
-        user_email=cfg.get("user_email", ""),
-        auth_token=cfg["auth_token"],
-        project_key=cfg.get("project_key", ""),
-        allow_localhost=True,
-    )
-
-    try:
-        ext_id = task.get("external_id")
-        if ext_id:
-            return jsonify({"success": True, "external_id": ext_id, "external_url": task.get("external_url")}), 200
-        else:
-            payload = CreateTaskPayload(
-                title=task["title"],
-                description=task.get("description", ""),
-                status=task.get("status", "todo"),
-                priority=task.get("priority", "medium"),
-                ticket_type=task.get("ticket_type", "task"),
-                story_points=task.get("story_points", 0),
-                assignee=task.get("assignee", ""),
-            )
-            entity = adapter.create_task(project_id=task["project_id"], payload=payload)
-            db.update_task(
-                task_id,
-                external_provider="jira",
-                external_id=entity.external_id,
-                external_url=entity.external_url,
-                external_type=entity.external_type,
-                sync_status="synced",
-            )
-            return jsonify({
-                "success": True,
-                "external_id": entity.external_id,
-                "external_url": entity.external_url,
-            }), 200
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@bp.route("/api/outposts/notion/push-artifact", methods=["POST"])
-def api_notion_push_artifact():
-    """Publish a living document from artifacts.db to Notion."""
-    import db
-    from adapters.notion_document_adapter import NotionDocumentAdapter
-
-    data = request.get_json(force=True) or {}
-    artifact_id = data.get("artifact_id")
-    if not artifact_id:
-        return jsonify({"error": "artifact_id is required", "success": False}), 400
-
-    cfg = db.get_outpost_config("notion")
-    if not cfg or not cfg.get("auth_token"):
-        return jsonify({"error": "Notion outpost is not configured.", "success": False}), 400
-
-    adapter = NotionDocumentAdapter(
-        auth_token=cfg["auth_token"],
-        database_id=cfg.get("database_id"),
-        allow_localhost=True,
-    )
-    try:
-        res = adapter.push_artifact(int(artifact_id))
-        return jsonify(res), 200
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@bp.route("/api/outposts/gdocs/push-artifact", methods=["POST"])
-def api_gdocs_push_artifact():
-    """Publish a living document to Google Docs."""
-    import db
-    from adapters.gdocs_document_adapter import GDocsDocumentAdapter
-
-    data = request.get_json(force=True) or {}
-    artifact_id = data.get("artifact_id")
-    if not artifact_id:
-        return jsonify({"error": "artifact_id is required", "success": False}), 400
-
-    cfg = db.get_outpost_config("gdocs")
-    if not cfg or not cfg.get("auth_token"):
-        adapter = GDocsDocumentAdapter(auth_token="mock_token", allow_localhost=True)
-    else:
-        adapter = GDocsDocumentAdapter(
-            auth_token=cfg["auth_token"],
-            user_email=cfg.get("user_email"),
-            allow_localhost=True,
-        )
-
-    try:
-        res = adapter.push_artifact(int(artifact_id))
-        return jsonify(res), 200
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
 
 
