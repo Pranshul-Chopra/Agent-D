@@ -5,7 +5,7 @@ rem Requires: Python 3.11+, Node.js 20+, npm
 
 echo.
 echo ========================================================
-echo   Agent-D Desktop Production Release Builder v0.1.0
+echo   Agent-D Desktop Production Release Builder v0.2.0
 echo ========================================================
 echo.
 
@@ -17,17 +17,17 @@ if "%CSC_IDENTITY_AUTO_DISCOVERY%"=="" set "CSC_IDENTITY_AUTO_DISCOVERY=false"
 
 rem Step 1: Detect and Activate Python Environment
 echo [1/5] Checking Python environment...
-if exist "venv311\Scripts\activate.bat" (
+if exist "venv311\Scripts\pyinstaller.exe" (
     echo Activating venv311...
     call venv311\Scripts\activate.bat
     goto PYTHON_READY
 )
-if exist "venv\Scripts\activate.bat" (
+if exist "venv\Scripts\pyinstaller.exe" (
     echo Activating venv...
     call venv\Scripts\activate.bat
     goto PYTHON_READY
 )
-if exist ".venv\Scripts\activate.bat" (
+if exist ".venv\Scripts\pyinstaller.exe" (
     echo Activating .venv...
     call .venv\Scripts\activate.bat
     goto PYTHON_READY

@@ -10,6 +10,7 @@ import DocsView from './views/DocsView';
 import ChatView from './views/ChatView';
 import SettingsView from './views/SettingsView';
 import PatientsView from './views/PatientsView';
+import ConsultationsView from './views/ConsultationsView';
 import ErrorBoundary from './components/ErrorBoundary';
 import WhatsNewModal from './components/WhatsNewModal';
 import OnboardingModal from './components/onboarding/OnboardingModal';
@@ -186,7 +187,7 @@ export const App: React.FC = () => {
       <Titlebar
         activeTab={activeTab}
         activePatient={activePatient}
-        version={updateData.version || '0.1.0'}
+        version={updateData.version || '0.2.0'}
         onOpenPalette={() => setIsPaletteOpen(true)}
         onOpenWhatsNew={handleOpenWhatsNew}
         onOpenPatientDirectory={() => navigateWithTransition('patients')}
@@ -208,6 +209,13 @@ export const App: React.FC = () => {
             {activeTab === 'home' && <HomeView onNavigate={handleNavigate} />}
             {activeTab === 'patients' && (
               <PatientsView
+                activePatient={activePatient}
+                onSelectPatient={(p) => setActivePatient(p)}
+                onNavigate={handleNavigate}
+              />
+            )}
+            {activeTab === 'consultations' && (
+              <ConsultationsView
                 activePatient={activePatient}
                 onSelectPatient={(p) => setActivePatient(p)}
                 onNavigate={handleNavigate}

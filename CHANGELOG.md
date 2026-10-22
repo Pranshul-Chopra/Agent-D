@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.2.0] — 2026-10-22
+
+### Clinical Agility, Consultations & Approval-First CRUD (Current Release)
+
+#### Added
+- **Interactive Practice Calendar (`CalendarWidget.tsx`):**
+  - Integrated 7-column interactive monthly calendar on the Dashboard adapted from PranshulOS.
+  - Month/year navigation with single-click "Today" jump.
+  - Current-month date filtering with selection ring and status indicator dots (blue for scheduled consultations, amber for pending follow-ups/tasks).
+  - Selected day agenda view with inline task completion check-boxes and quick-add row for new agenda items and time-slots.
+- **Dedicated Consultations Module (`ConsultationsView.tsx`):**
+  - Standalone clinical encounters view decoupled from the dashboard and accessible via Sidebar (`consultations`) and Command Palette (`Ctrl+K`).
+  - Encounter status filters: `All`, `In Progress`, `Scheduled`, `Completed`, `Cancelled`.
+  - Encounter action controls: "▶ Start Encounter", "📝 Add Encounter Notes" (with modal), "✓ Complete Encounter", "✕ Cancel", and "💬 Open in Copilot".
+  - Quick "+ Schedule Consultation" modal with patient selection, date/time pickers, duration selector, and clinical reason fields.
+- **Approval-First CRUD System (`context_db.py`, `routes.py`, `clinical_tools.py`):**
+  - Copilot write tools for consultations (`propose_consultation`, `propose_update_consultation`, `propose_cancel_consultation`), dashboard tasks (`propose_dashboard_task`), tickets (`propose_update_ticket`, `propose_delete_ticket`), and artifacts.
+  - Unified mutation executor endpoint at `/api/ai/apply_action` enforcing doctor-in-the-loop review.
+  - Nullable `patient_id` on practice-wide agenda proposals with safe foreign-key handling.
+  - Action card rendering with parameter breakdown, visual diffs, and approve/reject execution.
+- **Slash `/` Command Palette in Copilot (`ChatView.tsx`):**
+  - Floating autocomplete suggestion popup upon typing `/` (`/consultation`, `/brief`, `/note`, `/ticket`, `/artifact`, `/meds`, `/search`).
+  - Keyboard navigation: `ArrowUp`/`ArrowDown` cycling, `Tab` or `Enter` to autocomplete, `Esc` to close.
+  - Dedicated `[/ Commands]` toggle button in the input toolbar.
+- **Workstation Identity & Local Hosting Notice:**
+  - Copilot header banner: `Agent-D Clinical Intelligence · Hosted locally on http://127.0.0.1:5050 · Private AES-256 Vault · Zero Cloud PII`.
+  - Dedicated architecture breakdown card in `SettingsView.tsx` detailing loopback security, database vault path (`%LOCALAPPDATA%\AgentD\context.db`), and de-identification perimeter.
+
+#### Changed
+- Decoupled appointments and meetings from the Home dashboard into the dedicated Consultations module.
+- Bumped application version to `0.2.0` across all backend, frontend, build scripts, and documentation manifests.
+
+---
+
 ## [0.1.0] — 2026-10-22
 
 ### Milestone 5: Visit Lifecycle & Multi-Key Gateway (Current Release)

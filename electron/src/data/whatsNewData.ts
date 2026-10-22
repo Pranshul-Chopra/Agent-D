@@ -25,10 +25,73 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '0.2.0',
+    codename: 'Clinical Agility & Encounters',
+    date: 'October 2026',
+    isLatest: true,
+    title: 'Interactive Calendar, Dedicated Consultations & Slash Commands',
+    summary:
+      'Agent-D v0.2.0 elevates clinical workflow fluidity with an interactive 7-column calendar widget from PranshulOS, a dedicated Consultations & Live Encounters module, comprehensive Copilot CRUD access guarded by the approval-first safety gate, and a keyboard-driven slash command palette.',
+    highlights: [
+      {
+        id: 'calendar-widget',
+        icon: 'kpi',
+        title: 'Interactive Practice Calendar Widget',
+        tag: 'Agenda & Planning',
+        description:
+          '7-column monthly calendar on the dashboard with quick "Today" navigation, clinical indicator dots (blue for consultations, amber for follow-ups), and day agenda with check-off tasks.',
+      },
+      {
+        id: 'consultations-module',
+        icon: 'file-text',
+        title: 'Dedicated Consultations & Encounters',
+        tag: 'Patient Encounters',
+        description:
+          'Standalone consultations management hub to monitor active meetings, start live encounters, record structured consultation notes, and jump directly into Copilot patient context.',
+      },
+      {
+        id: 'slash-palette',
+        icon: 'zap',
+        title: 'Slash (/) Command Palette',
+        tag: 'Productivity',
+        description:
+          'Type "/" in Copilot to access quick clinical workflows (/consultation, /brief, /note, /ticket, /artifact, /meds, /search) with keyboard tabbing, arrow navigation, and a dedicated toggle button.',
+      },
+      {
+        id: 'approval-crud',
+        icon: 'shield',
+        title: 'Approval-First CRUD System',
+        tag: 'Safety & Governance',
+        description:
+          'Copilot can propose actions across consultations, agenda tasks, tickets, and clinical artifacts with parameter inspection and visual diffs requiring explicit physician sign-off.',
+      },
+    ],
+    sections: [
+      {
+        title: 'New Clinical Features',
+        type: 'feature',
+        items: [
+          'PranshulOS interactive calendar widget on the home dashboard with real-time appointment and follow-up markers.',
+          'Dedicated Consultations view with status filtering (Scheduled, In Progress, Completed, Cancelled) and scheduling modal.',
+          'Copilot slash (/) command autocomplete floating menu with keyboard navigation and quick insertion.',
+          'Full CRUD execution endpoint (/api/ai/apply_action) with strict doctor-in-the-loop approval confirmation.',
+        ],
+      },
+      {
+        title: 'Identity & Security Clarification',
+        type: 'improvement',
+        items: [
+          'Prominent local hosting notice clarifying 100% loopback hosting (http://127.0.0.1:5050), local AES-256 vault, and zero cloud PII.',
+          'Settings Workstation Identity & Local Hosting card explaining hardware-bound encryption and local SQLite paths.',
+        ],
+      },
+    ],
+  },
+  {
     version: '0.1.0',
     codename: 'Clinical Vault',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'Agent-D: Conversational-First Local Clinical Assistant',
     summary:
       'Agent-D v0.1.0 introduces a privacy-first, local clinical desktop environment for physicians. Combines local cryptographic storage with an intelligent conversational copilot, patient context artifacts, and a clinical Kanban follow-up board.',

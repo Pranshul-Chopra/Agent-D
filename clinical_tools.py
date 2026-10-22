@@ -181,3 +181,119 @@ def propose_reminder(
         visit_id=visit_id,
         diff={"proposed_reminder": title, "due_time": due_time},
     )
+
+
+def propose_consultation(
+    patient_id: str,
+    scheduled_time: str,
+    duration_minutes: int = 15,
+    appointment_type: str = "follow_up",
+    reason: str = "Clinical consultation",
+    rationale: str = "Physician requested consultation scheduling",
+    visit_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Proposes scheduling a patient consultation / meeting encounter."""
+    payload = {
+        "scheduled_time": scheduled_time,
+        "duration_minutes": duration_minutes,
+        "appointment_type": appointment_type,
+        "reason": reason,
+    }
+    return context_db.create_proposal(
+        patient_id=patient_id,
+        proposal_type="consultation",
+        payload=payload,
+        rationale=rationale,
+        visit_id=visit_id,
+        diff={"scheduled_time": scheduled_time, "duration": f"{duration_minutes}m", "reason": reason},
+    )
+
+
+def propose_update_consultation(
+    appointment_id: str,
+    updates: Dict[str, Any],
+    rationale: str = "Reschedule or update consultation parameters",
+) -> Dict[str, Any]:
+    """Proposes updating or rescheduling an existing consultation."""
+    payload = dict(updates)
+    payload["appointment_id"] = appointment_id
+    return context_db.create_proposal(
+        patient_id="",
+        proposal_type="update_consultation",
+        payload=payload,
+        rationale=rationale,
+        diff=updates,
+    )
+
+
+def propose_cancel_consultation(
+    appointment_id: str,
+    reason: str = "Patient requested cancellation",
+    rationale: str = "Cancel scheduled consultation encounter",
+) -> Dict[str, Any]:
+    """Proposes cancelling a scheduled consultation."""
+    payload = {"appointment_id": appointment_id, "reason": reason}
+    return context_db.create_proposal(
+        patient_id="",
+        proposal_type="cancel_consultation",
+        payload=payload,
+        rationale=rationale,
+        diff={"status": "cancelled", "reason": reason},
+    )
+
+
+def propose_dashboard_task(
+    title: str,
+    priority: str = "medium",
+    due_date: Optional[str] = None,
+    due_time: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    rationale: str = "Practice dashboard task / agenda item",
+) -> Dict[str, Any]:
+    """Proposes adding a task or agenda item to the doctor's practice dashboard."""
+    payload = {
+        "title": title,
+        "priority": priority,
+        "due_date": due_date or date.today().isoformat(),
+        "due_time": due_time,
+        "patient_id": patient_id,
+    }
+    return context_db.create_proposal(
+        patient_id=patient_id or "",
+        proposal_type="dashboard_task",
+        payload=payload,
+        rationale=rationale,
+        diff={"title": title, "priority": priority, "due_date": payload["due_date"]},
+    )
+
+
+def propose_update_ticket(
+    ticket_id: str,
+    updates: Dict[str, Any],
+    rationale: str = "Update ticket parameters or clinical status",
+) -> Dict[str, Any]:
+    """Proposes updating a clinical ticket."""
+    payload = dict(updates)
+    payload["ticket_id"] = ticket_id
+    return context_db.create_proposal(
+        patient_id="",
+        proposal_type="update_ticket",
+        payload=payload,
+        rationale=rationale,
+        diff=updates,
+    )
+
+
+def propose_delete_ticket(
+    ticket_id: str,
+    rationale: str = "Remove obsolete or closed ticket",
+) -> Dict[str, Any]:
+    """Proposes deleting an obsolete clinical ticket."""
+    payload = {"ticket_id": ticket_id}
+    return context_db.create_proposal(
+        patient_id="",
+        proposal_type="delete_ticket",
+        payload=payload,
+        rationale=rationale,
+        diff={"action": "delete", "ticket_id": ticket_id},
+    )

@@ -47,6 +47,90 @@ const CLINICAL_PROMPT_CHIPS = [
   { label: '📝 Dictate Visit Notes', prompt: 'I want to record visit notes: Patient presented stable vitals, BP 124/82, HR 72. Formulate clinical impressions and follow-up plan.' },
 ];
 
+export interface SlashCommandItem {
+  cmd: string;
+  mode: string;
+  icon: string;
+  label: string;
+  name: string;
+  desc: string;
+  badgeClass: string;
+  placeholder: string;
+}
+
+export const SLASH_COMMANDS: SlashCommandItem[] = [
+  {
+    cmd: '/consultation',
+    mode: 'consultation',
+    icon: '🤝',
+    label: '/consultation',
+    name: 'Schedule Consultation',
+    desc: 'Schedule or update patient consultation encounter',
+    badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+    placeholder: '/consultation Schedule follow-up visit for next week',
+  },
+  {
+    cmd: '/brief',
+    mode: 'brief',
+    icon: '☀️',
+    label: '/brief',
+    name: 'Morning & Pre-Visit Brief',
+    desc: "Review today's clinical schedule, next patient, and priorities",
+    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+    placeholder: "/brief What's on my schedule today?",
+  },
+  {
+    cmd: '/note',
+    mode: 'note',
+    icon: '📝',
+    label: '/note',
+    name: 'Dictate SOAP Visit Note',
+    desc: 'Format clinical observations into structured encounter note',
+    badgeClass: 'bg-purple-50 text-purple-700 border-purple-200',
+    placeholder: '/note Patient presented with stable vitals: BP 120/80',
+  },
+  {
+    cmd: '/ticket',
+    mode: 'ticket',
+    icon: '📋',
+    label: '/ticket',
+    name: 'Clinical Follow-up Ticket',
+    desc: 'Propose lab orders, tests, or care plan action items',
+    badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    placeholder: '/ticket Order 3-month follow-up lab panel',
+  },
+  {
+    cmd: '/artifact',
+    mode: 'artifact',
+    icon: '🩺',
+    label: '/artifact',
+    name: 'Patient Chart Artifact',
+    desc: 'Propose amendment to active issues, medications, or watch-for items',
+    badgeClass: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    placeholder: '/artifact Titrate current medications and adjust dose',
+  },
+  {
+    cmd: '/meds',
+    mode: 'meds',
+    icon: '💊',
+    label: '/meds',
+    name: 'Medication Review',
+    desc: 'Review active prescriptions, dosages, and interactions',
+    badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+    placeholder: '/meds Review current medications and check interactions',
+  },
+  {
+    cmd: '/search',
+    mode: 'search',
+    icon: '🔍',
+    label: '/search',
+    name: 'Clinical Chart Search',
+    desc: 'Query local encrypted patient records and encounter history',
+    badgeClass: 'bg-sky-50 text-sky-700 border-sky-200',
+    placeholder: '/search Search previous encounter notes for ',
+  },
+];
+
 export interface ChatViewProps {
   inheritedTab?: string | null;
   initialProjectId?: number | null;
@@ -64,9 +148,91 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
   const [loading, setLoading] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
+  // Slash commands state (from PranshulOS pattern)
+  const [isSlashPopupVisible, setIsSlashPopupVisible] = useState(false);
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
+
+  // Filter matching slash commands based on input
+  const matchingSlashCommands = React.useMemo(() => {
+    const trimmed = input.trim().toLowerCase();
+    if (!trimmed.startsWith('/')) {
+      return SLASH_COMMANDS;
+    }
+    const token = trimmed.split(/\s+/)[0];
+    return SLASH_COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(token));
+  }, [input]);
+
+  const handleSelectSlashCommand = (cmd: SlashCommandItem) => {
+    setInput(`${cmd.cmd} `);
+    setIsSlashPopupVisible(false);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleToggleSlashMenu = () => {
+    setIsSlashPopupVisible((prev) => !prev);
+    setSlashActiveIndex(0);
+    if (!isSlashPopupVisible && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    if (val.startsWith('/')) {
+      const token = val.split(/\s+/)[0].toLowerCase();
+      // If user typed space beyond command, dismiss popup
+      if (val.includes(' ') && val.length > token.length + 1) {
+        setIsSlashPopupVisible(false);
+      } else {
+        setIsSlashPopupVisible(true);
+        setSlashActiveIndex(0);
+      }
+    } else {
+      setIsSlashPopupVisible(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // If slash popup is open, handle keyboard navigation
+    if (isSlashPopupVisible && matchingSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashActiveIndex((prev) => (prev + 1) % matchingSlashCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashActiveIndex((prev) => (prev - 1 + matchingSlashCommands.length) % matchingSlashCommands.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        const selected = matchingSlashCommands[slashActiveIndex];
+        if (selected) {
+          handleSelectSlashCommand(selected);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsSlashPopupVisible(false);
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      setIsSlashPopupVisible(false);
+      handleSendMessage();
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -261,13 +427,6 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
     setTimeout(() => setCopiedMsgId(null), 2000);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
   return (
     <div className="h-full w-full bg-white flex overflow-hidden select-none">
       {/* ── Left Consultation History Sidebar ────────────────────────────── */}
@@ -380,6 +539,24 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>De-Identified & Encrypted</span>
             </div>
+          </div>
+        </div>
+
+        {/* Workstation Identity & Local Hosting Notice */}
+        <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-6 py-1.5 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-semibold text-slate-800">Agent-D Clinical Intelligence</span>
+            <span>•</span>
+            <span className="text-slate-600">
+              Hosted locally on <code className="font-mono text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">http://127.0.0.1:5050</code>
+            </span>
+            <span>•</span>
+            <span className="text-slate-600">Private AES-256 Vault</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>100% Private Offline Loopback • Zero Cloud PII</span>
           </div>
         </div>
 
@@ -514,19 +691,90 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
         </div>
 
         {/* ── Bottom Dock / Input Box ─────────────────────────────────────── */}
-        <div className="p-4 border-t border-[#E2E8F0] bg-white">
-          <div className="max-w-3xl mx-auto space-y-2">
-            {/* Quick Action Chips */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {CLINICAL_PROMPT_CHIPS.map((chip, idx) => (
+        <div className="p-4 border-t border-[#E2E8F0] bg-white relative">
+          <div className="max-w-3xl mx-auto space-y-2 relative">
+            {/* ── Floating Slash Suggestions Popup (PranshulOS Style) ──────── */}
+            {isSlashPopupVisible && matchingSlashCommands.length > 0 && (
+              <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 bg-white border border-[#CBD5E1] rounded-2xl shadow-2xl p-2 z-50 flex flex-col gap-1 max-h-80 overflow-y-auto animate-fadeIn">
+                <div className="px-3 py-1.5 text-[10px] font-mono font-bold tracking-wider uppercase text-slate-400 flex items-center justify-between border-b border-slate-100">
+                  <span className="flex items-center gap-1.5 text-[#2563EB]">
+                    <Sparkles className="w-3 h-3" />
+                    <span>Clinical Modes &amp; Slash Commands</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-sans font-normal">
+                    ↑↓ navigate • <strong className="font-mono text-slate-700">Tab / ↵</strong> select • <strong className="font-mono text-slate-700">Esc</strong> dismiss
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1 pt-1">
+                  {matchingSlashCommands.map((item, idx) => {
+                    const isSelected = idx === slashActiveIndex;
+                    return (
+                      <div
+                        key={item.cmd}
+                        onClick={() => handleSelectSlashCommand(item)}
+                        onMouseEnter={() => setSlashActiveIndex(idx)}
+                        className={`flex items-center justify-between p-2 rounded-xl cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8]'
+                            : 'hover:bg-slate-50 border border-transparent text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold flex items-center gap-1 border flex-shrink-0 ${item.badgeClass}`}
+                          >
+                            <span>{item.icon}</span>
+                            <span>{item.label}</span>
+                          </span>
+                          <div className="truncate min-w-0">
+                            <span className="text-xs font-bold text-slate-900 block truncate">
+                              {item.name}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block truncate">
+                              {item.desc}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white text-slate-600 border border-[#CBD5E1] flex-shrink-0 ml-3 shadow-2xs">
+                          Tab ↵
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Quick Action Chips & / Toggle Button */}
+            <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+              <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-x-auto scrollbar-none">
+                {/* Dedicated / Toggle Button */}
                 <button
-                  key={idx}
-                  onClick={() => handleSendMessage(chip.prompt)}
-                  className="flex-shrink-0 px-2.5 py-1 rounded-full bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] hover:border-[#BFDBFE] text-slate-700 hover:text-[#1D4ED8] text-[11px] font-semibold transition-all cursor-pointer"
+                  type="button"
+                  onClick={handleToggleSlashMenu}
+                  className={`flex-shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-bold transition-all cursor-pointer border ${
+                    isSlashPopupVisible
+                      ? 'bg-[#2563EB] text-white border-[#1D4ED8] shadow-xs'
+                      : 'bg-white hover:bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE] hover:border-[#2563EB]'
+                  }`}
+                  title="Toggle Slash Commands Palette (or type / in chat)"
                 >
-                  {chip.label}
+                  <span className="text-sm leading-none">/</span>
+                  <span className="font-sans font-semibold">Commands</span>
                 </button>
-              ))}
+
+                {CLINICAL_PROMPT_CHIPS.map((chip, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSendMessage(chip.prompt)}
+                    className="flex-shrink-0 px-2.5 py-1 rounded-full bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] hover:border-[#BFDBFE] text-slate-700 hover:text-[#1D4ED8] text-[11px] font-semibold transition-all cursor-pointer"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Input Box */}
@@ -535,12 +783,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                 ref={textareaRef}
                 rows={1}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   activePatient
-                    ? `Consulting for ${activePatient.display_name} (${activePatient.llm_alias})... or type 'Morning brief'`
-                    : "Ask Copilot, dictate consult notes, or ask 'What is on my dashboard today?'..."
+                    ? `Consulting for ${activePatient.display_name} (${activePatient.llm_alias})... Type / for commands (/consultation, /note, /ticket)`
+                    : "Ask Copilot, type / for commands (/consultation, /brief, /note, /ticket, /artifact, /meds)..."
                 }
                 className="flex-1 max-h-32 p-2 bg-transparent text-xs text-slate-900 placeholder:text-slate-400 outline-none resize-none"
               />

@@ -60,6 +60,17 @@ export const ActionCard: React.FC<ActionCardProps> = ({
     data.action_key ||
     `${conversationId || 'global'}:${action || 'proposal'}:${title.toLowerCase()}`;
 
+  const isConsultationProposal =
+    action.includes('consultation') ||
+    action.includes('appointment') ||
+    action.includes('meeting') ||
+    data.proposal_type === 'consultation' ||
+    Boolean(data.scheduled_time);
+
+  const isDashboardProposal =
+    action.includes('dashboard') ||
+    data.proposal_type === 'dashboard_task';
+
   const isArtifactProposal =
     action.includes('artifact') ||
     data.proposal_type === 'artifact_update' ||
@@ -68,13 +79,15 @@ export const ActionCard: React.FC<ActionCardProps> = ({
   const isLogProposal =
     action.includes('log') ||
     data.proposal_type === 'log_entry' ||
-    Boolean(data.content && !data.title);
+    Boolean(data.content && !data.title && !data.scheduled_time);
 
   const isTicketProposal =
-    action.includes('ticket') ||
-    action.includes('task') ||
-    action.includes('reminder') ||
-    data.proposal_type === 'ticket';
+    !isConsultationProposal &&
+    !isDashboardProposal &&
+    (action.includes('ticket') ||
+      action.includes('task') ||
+      action.includes('reminder') ||
+      data.proposal_type === 'ticket');
 
   const priority = (data.priority || 'medium').toLowerCase();
   const priorityColor =
@@ -100,8 +113,38 @@ export const ActionCard: React.FC<ActionCardProps> = ({
         }
       }
 
-      // If no proposal_id or proposal was proposed as ticket
-      if (isTicketProposal) {
+      // If consultation proposal
+      if (isConsultationProposal) {
+        const apptRes = await AppBridge.api.executeAction(
+          'create_consultation',
+          {
+            patient_id: data.patient_id,
+            patient_alias: data.patient_alias,
+            scheduled_time: data.scheduled_time || data.time,
+            duration_minutes: data.duration_minutes || 15,
+            appointment_type: data.appointment_type || 'follow_up',
+            reason: data.reason || data.title || title,
+          },
+          conversationId,
+          computedActionKey
+        );
+        setIsApplied(true);
+        onApplied?.(apptRes, computedActionKey);
+      } else if (isDashboardProposal) {
+        const dashRes = await AppBridge.api.executeAction(
+          'create_dashboard_task',
+          {
+            title: data.title || title,
+            due_date: data.due_date,
+            priority: data.priority || 'medium',
+            description: data.description || data.rationale,
+          },
+          conversationId,
+          computedActionKey
+        );
+        setIsApplied(true);
+        onApplied?.(dashRes, computedActionKey);
+      } else if (isTicketProposal) {
         const ticketRes = await AppBridge.api.createTicket({
           patient_id: data.patient_id,
           title: data.title || title,
@@ -181,7 +224,11 @@ export const ActionCard: React.FC<ActionCardProps> = ({
       >
         <div className="flex items-center gap-2">
           <div className="p-1 rounded bg-white border border-[#BFDBFE] text-[#2563EB]">
-            {isArtifactProposal ? (
+            {isConsultationProposal ? (
+              <Calendar className="w-3.5 h-3.5" />
+            ) : isDashboardProposal ? (
+              <Clock className="w-3.5 h-3.5" />
+            ) : isArtifactProposal ? (
               <Stethoscope className="w-3.5 h-3.5" />
             ) : isLogProposal ? (
               <FileText className="w-3.5 h-3.5" />
@@ -190,7 +237,11 @@ export const ActionCard: React.FC<ActionCardProps> = ({
             )}
           </div>
           <span className="font-bold text-slate-900 text-[11px] tracking-wide uppercase">
-            {isArtifactProposal
+            {isConsultationProposal
+              ? '🤝 Proposed Patient Consultation'
+              : isDashboardProposal
+              ? '📌 Proposed Dashboard Agenda Task'
+              : isArtifactProposal
               ? '🩺 Proposed Chart Artifact Update'
               : isLogProposal
               ? '📝 Proposed Medical Observation'
@@ -233,6 +284,44 @@ export const ActionCard: React.FC<ActionCardProps> = ({
             </p>
           )}
         </div>
+
+        {/* Consultation Proposal Details */}
+        {isConsultationProposal && (
+          <div className="p-3 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] space-y-1.5 text-xs">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#1D4ED8]">
+              Consultation Parameters
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div>
+                <span className="text-slate-500">Scheduled Time:</span>{' '}
+                <span className="font-semibold text-slate-900">{data.scheduled_time || data.time || 'Today'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500">Duration:</span>{' '}
+                <span className="font-semibold text-slate-900">{data.duration_minutes || 15} minutes</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-slate-500">Reason:</span>{' '}
+                <span className="font-semibold text-slate-900">{data.reason || title}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dashboard Task Details */}
+        {isDashboardProposal && (
+          <div className="flex items-center gap-3 text-[11px] text-slate-600">
+            <span className={`px-2 py-0.5 rounded border font-semibold uppercase ${priorityColor}`}>
+              {priority} Priority
+            </span>
+            {data.due_date && (
+              <span className="flex items-center gap-1 text-slate-500">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>Scheduled for: {data.due_date}</span>
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Diff & Field Changes for Artifact Updates */}
         {isArtifactProposal && data.updates && (

@@ -23,7 +23,7 @@ const tabTitles: Record<NavTab, string> = {
 export const Titlebar: React.FC<TitlebarProps> = ({
   activeTab,
   activePatient,
-  version = '0.1.0',
+  version = '0.2.0',
   onOpenPalette,
   onOpenWhatsNew,
   onOpenPatientDirectory,

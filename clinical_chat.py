@@ -234,7 +234,96 @@ def _generate_local_clinical_response(
             "> Click **[Approve & Commit]** above to commit this action item to your Clinical Kanban Board."
         )
 
-    # 6. Proposed Artifact Update ("update medication", "add medication", "propose medication", "change dosage", "update artifact")
+    # 6. Proposed Consultation / Meeting Scheduling ("/consultation", "schedule consultation", "schedule meeting", "book appointment")
+    if any(k in msg_lower for k in ("consultation", "schedule consultation", "schedule meeting", "book appointment", "new appointment", "schedule visit")):
+        p_id = active_p.get("id") if active_p else None
+        p_alias = active_p.get("alias") if active_p else "PT-XXXX"
+        if not p_id:
+            all_p = context_db.list_patients(limit=1)
+            if all_p:
+                p_id = all_p[0]["id"]
+                p_alias = all_p[0]["llm_alias"]
+
+        # Default time: today or tomorrow at 10:00 AM
+        from datetime import datetime, timedelta
+        target_time = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%d %H:00")
+        reason = "Follow-up clinical assessment"
+        if "bp" in msg_lower or "hypertension" in msg_lower:
+            reason = "Hypertension blood pressure check"
+        elif "diabetes" in msg_lower or "glucose" in msg_lower:
+            reason = "Diabetes management & lab review"
+
+        prop_id = None
+        if p_id:
+            try:
+                import clinical_tools
+                prop = clinical_tools.propose_consultation(
+                    patient_id=p_id,
+                    scheduled_time=target_time,
+                    duration_minutes=15,
+                    appointment_type="follow_up",
+                    reason=reason,
+                    rationale=f"Physician requested scheduling in chat: \"{message}\"",
+                )
+                prop_id = prop.get("id")
+            except Exception:
+                pass
+
+        card_json = json.dumps({
+            "proposal_id": prop_id,
+            "patient_id": p_id,
+            "patient_alias": p_alias,
+            "proposal_type": "consultation",
+            "title": f"Schedule Consultation: {p_alias}",
+            "scheduled_time": target_time,
+            "duration_minutes": 15,
+            "appointment_type": "follow_up",
+            "reason": reason,
+            "rationale": f"Physician requested: \"{message}\"",
+        }, indent=2)
+
+        return (
+            f"### 🤝 Consultation Proposal Formulated for `{p_alias}`\n\n"
+            f"I have staged a consultation encounter for your review and approval:\n\n"
+            f"```action:create_consultation\n{card_json}\n```\n\n"
+            "> [!NOTE]\n"
+            "> Click **[Approve & Schedule]** above to commit this consultation to your Consultations schedule."
+        )
+
+    # 7. Proposed Dashboard Task / Agenda Item ("/dashboard", "dashboard task", "add task", "schedule task")
+    if any(k in msg_lower for k in ("dashboard task", "add task", "schedule task", "add to dashboard", "add to today")):
+        clean_title = message.replace("/dashboard", "").replace("add task", "").replace("dashboard task", "").strip() or "Practice Review Item"
+        prop_id = None
+        try:
+            import clinical_tools
+            prop = clinical_tools.propose_dashboard_task(
+                title=clean_title,
+                priority="medium",
+                due_date=date.today().isoformat(),
+                rationale=f"Physician added to practice dashboard: \"{message}\"",
+            )
+            prop_id = prop.get("id")
+        except Exception:
+            pass
+
+        card_json = json.dumps({
+            "proposal_id": prop_id,
+            "proposal_type": "dashboard_task",
+            "title": clean_title,
+            "priority": "medium",
+            "due_date": date.today().isoformat(),
+            "rationale": f"Doctor requested: \"{message}\"",
+        }, indent=2)
+
+        return (
+            f"### 📌 Dashboard Task Formulated\n\n"
+            f"I have staged an agenda task for your Practice Dashboard:\n\n"
+            f"```action:create_dashboard_task\n{card_json}\n```\n\n"
+            "> [!NOTE]\n"
+            "> Click **[Approve & Add]** above to commit this task to today's schedule."
+        )
+
+    # 8. Proposed Artifact Update ("update medication", "add medication", "propose medication", "change dosage", "update artifact")
     if active_p and any(k in msg_lower for k in ("propose medication", "add medication", "update medication", "prescribe", "change dose", "update artifact")):
         p_id = active_p.get("id")
         p_alias = active_p.get("alias")
@@ -283,16 +372,19 @@ def _generate_local_clinical_response(
             "> In accordance with Safety Gate rules, no updates are made to the database until you click **[Approve & Commit]**."
         )
 
-    # 7. General Clinical Inquiry or Chat Turn
+    # 9. General Clinical Inquiry or Chat Turn
     alias_str = f" for `{active_p['alias']}`" if active_p else ""
     return (
         f"### 🤖 Agent-D Clinical Copilot{alias_str}\n\n"
         f"I have received your consultation query: **\"{message}\"**.\n\n"
-        f"**Active Clinical Workspace:**\n"
-        f"• Practice Workstation Time: {ctx.get('formatted_time')}\n"
-        f"• Active Patient Scope: {active_p['alias'] if active_p else 'General Practice Mode (No patient selected)'}\n"
-        f"• Vault Status: AES-256-GCM Encrypted at rest\n\n"
-        "*(Note: To enable live multimodal Gemini generation, add your Google Gemini API key in **Settings → Multi-Key Gemini Vault**.)*"
+        f"**Workstation Infrastructure & Identity:**\n"
+        f"• **Deployment Location:** Local Offline Workstation (`http://127.0.0.1:5050`)\n"
+        f"• **Hardware Vault:** AES-256-GCM encrypted database (`%LOCALAPPDATA%\\AgentD\\context.db`)\n"
+        f"• **De-Identification Perimeter:** Active (Zero raw patient PII transmitted; all patients aliased)\n"
+        f"• **Practice Time:** {ctx.get('formatted_time')}\n"
+        f"• **Active Patient Scope:** {active_p['alias'] if active_p else 'General Practice Mode (No patient selected)'}\n\n"
+        f"> [!TIP]\n"
+        f"> Type `/` to open the quick clinical command menu (`/consultation`, `/brief`, `/note`, `/ticket`, `/artifact`, `/meds`, `/search`)."
     )
 
 

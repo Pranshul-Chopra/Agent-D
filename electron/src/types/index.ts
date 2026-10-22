@@ -1,4 +1,4 @@
-export type NavTab = 'chat' | 'home' | 'patients' | 'documents' | 'board' | 'settings';
+export type NavTab = 'chat' | 'home' | 'patients' | 'consultations' | 'documents' | 'board' | 'settings';
 
 export interface Patient {
   id: string;

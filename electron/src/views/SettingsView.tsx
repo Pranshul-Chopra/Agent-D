@@ -349,6 +349,72 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
           </div>
         </div>
 
+        {/* Local Deployment & Identity Clarification Card */}
+        <div className="bg-[#F8FAFC] border border-[#BFDBFE] rounded-xl p-6 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
+                <HardDrive className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Workstation Identity &amp; Local Hosting Architecture</h2>
+                <p className="text-[11px] text-slate-500">
+                  Agent-D runs 100% locally on your machine with offline execution and doctor-in-control governance
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              <span>127.0.0.1:5050 LOCALHOST</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Hosting Location</div>
+              <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                <code className="text-[#2563EB] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-mono text-[11px]">
+                  http://127.0.0.1:5050
+                </code>
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Bound to offline Windows loopback socket. Refuses all incoming WAN / LAN connections.
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Encrypted Database Vault</div>
+              <div className="font-semibold text-slate-900 font-mono text-[11px]">
+                %LOCALAPPDATA%\AgentD\context.db
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Protected by hardware-bound AES-256-GCM encryption at rest. Never stored in cloud.
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">PII De-Identification Perimeter</div>
+              <div className="font-semibold text-emerald-700 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Zero Cloud PII Active</span>
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Cryptographic alias mapper substitutes all patient identifiers (e.g. PT-1042) before any external LLM call.
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
+              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Approval-First Safety Gate</div>
+              <div className="font-semibold text-slate-900">
+                Doctor-in-Control Verification
+              </div>
+              <div className="text-[11px] text-slate-500 leading-relaxed">
+                Copilot proposes typed actions across consultations, dashboard, tickets, and artifacts; doctor commits with one click.
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 1. Multi-Key Gemini API Key Manager */}
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
@@ -701,7 +767,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
               <div className="text-xs text-slate-600 space-y-1">
                 <div className="flex items-center gap-2">
                   <span>Version:</span>
-                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.1.0'}</span>
+                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.2.0'}</span>
                   <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Production Release
                   </span>

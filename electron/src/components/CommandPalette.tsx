@@ -118,6 +118,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
+        id: 'nav-consultations',
+        category: 'Navigation',
+        title: 'Consultations & Encounters',
+        subtitle: 'Monitor active consultations, conduct clinical encounters, and dictate notes',
+        icon: Calendar,
+        shortcut: 'Ctrl+4',
+        run: () => {
+          onNavigate('consultations');
+          onClose();
+        },
+      },
+      {
         id: 'nav-docs',
         category: 'Navigation',
         title: 'Patient Artifacts Studio',
@@ -413,7 +425,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-blue-600 font-semibold">Agent-D</span>
-            <span>v0.1.0</span>
+            <span>v0.2.0</span>
           </div>
         </div>
       </div>

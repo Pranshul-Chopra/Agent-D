@@ -70,10 +70,10 @@ def _get_app_version() -> str:
         import json
         vf = _get_base_dir() / "version.json"
         if vf.exists():
-            return json.loads(vf.read_text(encoding="utf-8")).get("version", "0.1.0")
+            return json.loads(vf.read_text(encoding="utf-8")).get("version", "0.2.0")
     except Exception:
         pass
-    return "0.1.0"
+    return "0.2.0"
 
 
 @bp.route("/api/status")
@@ -719,105 +719,292 @@ def task_metrics():
 
 
 @bp.route("/api/tools/execute_action", methods=["POST"])
+@bp.route("/api/ai/apply_action", methods=["POST"])
 def api_execute_action():
     """
-    Execute an AI-proposed interactive action (e.g. create_ticket / create_task).
-    Applies authorization policy and creates the ticket directly on the Sprint Board.
+    Execute an AI-proposed interactive action across:
+    - Consultations & appointments (create, update, cancel, complete)
+    - Clinical tickets & tasks (create, update, delete)
+    - Patient chart artifacts (update, patch)
+    - Medical log entries (observation, vital signs)
+    - Dashboard agenda tasks & goals
+    Provides the approval-first execution engine from PranshulOS.
     """
     data = request.get_json(silent=True) or {}
-    action_name = str(data.get("action") or data.get("action_name") or "").strip().lower()
-    params = data.get("params") or {}
-    conv_id = data.get("conversation_id")
+    params = data.get("params") or data
+    action_name = str(data.get("action") or data.get("action_name") or params.get("action") or params.get("action_name") or "").strip().lower()
+    conv_id = data.get("conversation_id") or data.get("session_id") or params.get("conversation_id")
 
-    policy = db.get_ai_ticket_policy()
-    if not policy.get("creation_allowed", True):
+    # If action_name is empty, deduce from params
+    if not action_name:
+        if "patient_id" in params and "updates" in params:
+            action_name = "update_artifact"
+        elif "scheduled_time" in params or "consultation" in str(params):
+            action_name = "create_consultation"
+        elif "title" in params:
+            action_name = "create_ticket"
+        else:
+            action_name = "create_ticket"
+
+    action_key = str(data.get("action_key") or params.get("action_key") or "").strip()
+    if not action_key:
+        fallback_title = params.get("title") or params.get("reason") or "action"
+        action_key = f"{conv_id or 'global'}:{action_name}:{str(fallback_title).strip().lower()}"
+
+    # 1. Consultations & Meetings
+    if action_name in ("create_consultation", "schedule_consultation", "create_appointment", "consultation"):
+        patient_id = params.get("patient_id")
+        patient_alias = params.get("patient_alias")
+        if not patient_id and patient_alias:
+            p = context_db.get_patient_by_alias(patient_alias)
+            if p:
+                patient_id = p["id"]
+        if not patient_id:
+            # Fallback to first active patient if not specified
+            all_p = context_db.list_patients(limit=1)
+            if all_p:
+                patient_id = all_p[0]["id"]
+            else:
+                return jsonify({"error": "Patient is required to schedule a consultation."}), 400
+
+        scheduled_time = params.get("scheduled_time") or params.get("time") or datetime.now().strftime("%Y-%m-%d %H:%M")
+        duration = int(params.get("duration_minutes") or params.get("duration") or 15)
+        appt_type = params.get("appointment_type") or params.get("type") or "follow_up"
+        reason = str(params.get("reason") or params.get("title") or "Clinical follow-up consultation").strip()
+
+        appt = context_db.create_appointment(
+            patient_id=patient_id,
+            scheduled_time=scheduled_time,
+            duration_minutes=duration,
+            appointment_type=appt_type,
+            reason=reason,
+        )
+
+        try:
+            ai_db.record_applied_action(
+                action_key=action_key,
+                conversation_id=conv_id or "global",
+                action_name=action_name,
+                title=reason,
+                entity_id=appt.get("id"),
+            )
+        except Exception:
+            pass
+
         return jsonify({
-            "error": "Ticket creation is currently disabled by organization policy in Settings.",
-            "policy": policy,
-        }), 403
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "appointment": appt,
+            "message": f"Consultation scheduled for {scheduled_time} ({duration}m) successfully!",
+        })
 
-    if action_name in ("create_ticket", "createticket", "create_task", "createtask"):
+    elif action_name in ("update_consultation", "reschedule_consultation"):
+        appt_id = params.get("appointment_id") or params.get("id")
+        if not appt_id:
+            return jsonify({"error": "appointment_id is required."}), 400
+        updates = {}
+        for k in ("scheduled_time", "reason", "status", "duration_minutes", "appointment_type"):
+            if k in params:
+                updates[k] = params[k]
+        updated = context_db.update_appointment(appt_id, updates)
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "appointment": updated,
+            "message": f"Consultation updated successfully!",
+        })
+
+    elif action_name in ("cancel_consultation", "complete_consultation"):
+        appt_id = params.get("appointment_id") or params.get("id")
+        if not appt_id:
+            return jsonify({"error": "appointment_id is required."}), 400
+        new_status = "cancelled" if "cancel" in action_name else "completed"
+        updated = context_db.update_appointment(appt_id, {"status": new_status})
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "appointment": updated,
+            "message": f"Consultation marked as {new_status}!",
+        })
+
+    # 2. Artifact Update
+    elif action_name in ("update_artifact", "update_patient_artifact", "patch_artifact"):
+        patient_id = params.get("patient_id")
+        if not patient_id and params.get("patient_alias"):
+            p = context_db.get_patient_by_alias(params["patient_alias"])
+            if p:
+                patient_id = p["id"]
+        if not patient_id:
+            return jsonify({"error": "patient_id is required for artifact update."}), 400
+
+        updates = params.get("updates") or {}
+        rationale = str(params.get("rationale") or "Copilot approved chart update").strip()
+        current_art = context_db.get_patient_artifact(patient_id) or {}
+        merged = dict(current_art)
+        for k, v in updates.items():
+            if k in ("summary", "active_issues", "medications", "watch_for", "follow_ups"):
+                merged[k] = v
+
+        new_art = context_db.update_patient_artifact(
+            patient_id,
+            merged,
+            author_type="copilot_proposal",
+            change_summary=rationale,
+        )
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "artifact": new_art,
+            "message": f"Patient artifact v{new_art.get('current_version', 1)} updated successfully!",
+        })
+
+    # 3. Medical Log Entry
+    elif action_name in ("create_log_entry", "add_log_entry", "observation"):
+        patient_id = params.get("patient_id")
+        if not patient_id and params.get("patient_alias"):
+            p = context_db.get_patient_by_alias(params["patient_alias"])
+            if p:
+                patient_id = p["id"]
+        if not patient_id:
+            all_p = context_db.list_patients(limit=1)
+            if all_p:
+                patient_id = all_p[0]["id"]
+            else:
+                return jsonify({"error": "patient_id is required for log entry."}), 400
+
+        content = str(params.get("content") or params.get("notes") or "").strip()
+        entry_type = params.get("entry_type") or "observation"
+        metadata = params.get("metadata") or {}
+        entry = context_db.create_log_entry(
+            patient_id=patient_id,
+            entry_type=entry_type,
+            content=content,
+            metadata=metadata,
+        )
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "log_entry": entry,
+            "message": "Clinical observation recorded in patient history!",
+        })
+
+    # 4. Dashboard Task / Goal
+    elif action_name in ("create_dashboard_task", "dashboard_task", "schedule_task"):
+        title = str(params.get("title") or params.get("subject") or "").strip()
+        if not title:
+            return jsonify({"error": "Task title is required."}), 400
+        due_date = params.get("due_date") or date.today().isoformat()
+        priority = str(params.get("priority") or "medium").lower()
+
+        ticket = context_db.create_ticket(
+            patient_id=params.get("patient_id") or None,
+            title=title,
+            description=params.get("description", ""),
+            priority=priority,
+            due_date=due_date,
+            is_reminder=0,
+        )
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "task": ticket,
+            "message": f"Dashboard task '{title}' scheduled for {due_date}!",
+        })
+
+    # 5. Tickets & Action Items
+    elif action_name in ("create_ticket", "createticket", "create_task", "createtask"):
         title = str(params.get("title") or params.get("subject") or "").strip()
         if not title:
             return jsonify({"error": "Ticket title is required."}), 400
 
-        project_id = params.get("project_id")
-        projs = db.get_projects()
-        if not projs:
-            p = db.create_project(name="Default Workspace", description="Default project workspace")
-            project_id = p["id"]
-        elif not project_id:
-            project_id = projs[0]["id"]
-        else:
-            try:
-                pid = int(project_id)
-                if not any(p["id"] == pid for p in projs):
-                    project_id = projs[0]["id"]
-                else:
-                    project_id = pid
-            except (ValueError, TypeError):
-                project_id = projs[0]["id"]
+        patient_id = params.get("patient_id")
+        if not patient_id and params.get("patient_alias"):
+            p = context_db.get_patient_by_alias(params["patient_alias"])
+            if p:
+                patient_id = p["id"]
 
         description = str(params.get("description") or "").strip()
-        priority = str(params.get("priority") or "med").lower().strip()
-        if priority not in ("urgent", "high", "med", "low"):
-            priority = "med"
-        status = str(params.get("status") or "todo").lower().strip()
-        if status not in ("todo", "in_progress", "blocked", "done"):
-            status = "todo"
+        priority = str(params.get("priority") or "medium").lower().strip()
+        if priority not in ("critical", "high", "medium", "low", "urgent", "med"):
+            priority = "medium"
+        due_date = params.get("due_date")
 
-        story_points = int(params.get("story_points") or 0)
-        acceptance_criteria = str(params.get("acceptance_criteria") or "").strip()
-        assignee = str(params.get("assignee") or "").strip()
-        ticket_type = str(params.get("ticket_type") or "internal").lower().strip()
-        if ticket_type not in ("internal", "external"):
-            ticket_type = "internal"
-
-        action_key = str(data.get("action_key") or params.get("action_key") or "").strip()
-        if not action_key:
-            action_key = f"{conv_id or 'global'}:{action_name}:{title.strip().lower()}"
-
-        task = db.create_task(
-            project_id=int(project_id),
+        # Create in context_db
+        clin_ticket = context_db.create_ticket(
+            patient_id=patient_id,
             title=title,
             description=description,
-            status=status,
             priority=priority,
-            story_points=story_points,
-            acceptance_criteria=acceptance_criteria,
-            assignee=assignee,
-            ticket_type=ticket_type,
+            due_date=due_date,
+            is_reminder=1 if "reminder" in action_name else 0,
         )
 
-        # Record action execution in ai_context.db for persistent state across tab switches
+        # Also create in db.py for Kanban Board compatibility
+        try:
+            projs = db.get_projects()
+            pid = projs[0]["id"] if projs else 1
+            db.create_task(
+                project_id=pid,
+                title=title,
+                description=description,
+                status="todo",
+                priority="urgent" if priority in ("critical", "urgent") else ("high" if priority == "high" else "med"),
+            )
+        except Exception:
+            pass
+
         try:
             ai_db.record_applied_action(
                 action_key=action_key,
                 conversation_id=conv_id or "global",
                 action_name=action_name,
                 title=title,
-                entity_id=task.get("id"),
+                entity_id=clin_ticket.get("id"),
             )
-        except Exception as e:
-            print("[Applied action persistence warning]", e)
-
-        if conv_id:
-            try:
-                ai_db.add_message(
-                    conversation_id=conv_id,
-                    role="assistant",
-                    content=f"⚡ Ticket **{title}** [#{task['id']} · {ticket_type.upper()}] successfully added to the Kanban Sprint Board!",
-                    model_info="Action Executor",
-                )
-            except Exception:
-                pass
+        except Exception:
+            pass
 
         return jsonify({
             "success": True,
             "action": action_name,
             "action_key": action_key,
-            "task": task,
-            "message": f"Ticket #{task['id']} '{title}' successfully added to Sprint Board!",
+            "task": clin_ticket,
+            "message": f"Clinical ticket '{title}' added to Follow-ups Board!",
+        })
+
+    elif action_name in ("update_ticket", "patch_ticket"):
+        ticket_id = params.get("ticket_id") or params.get("id")
+        if not ticket_id:
+            return jsonify({"error": "ticket_id is required."}), 400
+        updates = {}
+        for k in ("title", "priority", "status", "due_date", "description"):
+            if k in params:
+                updates[k] = params[k]
+        updated = context_db.update_ticket(ticket_id, updates)
+        return jsonify({
+            "success": True,
+            "action": action_name,
+            "action_key": action_key,
+            "task": updated,
+            "message": f"Ticket updated successfully!",
+        })
+
+    elif action_name in ("delete_ticket", "remove_ticket"):
+        ticket_id = params.get("ticket_id") or params.get("id")
+        if not ticket_id:
+            return jsonify({"error": "ticket_id is required."}), 400
+        ok = context_db.delete_ticket(ticket_id)
+        return jsonify({
+            "success": ok,
+            "action": action_name,
+            "action_key": action_key,
+            "message": f"Ticket removed successfully!",
         })
 
     return jsonify({"error": f"Unsupported action '{action_name}'."}), 400

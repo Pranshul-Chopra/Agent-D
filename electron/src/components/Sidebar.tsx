@@ -10,6 +10,7 @@ import {
   Sparkles,
   Stethoscope,
   Users,
+  Calendar,
 } from 'lucide-react';
 import type { NavTab, UpdateData } from '../types';
 
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { id: 'chat', label: 'Copilot', icon: Bot, badge: 'AI' },
   { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'patients', label: 'Patients', icon: Users },
+  { id: 'consultations', label: 'Consultations', icon: Calendar, badge: 'Live' },
   { id: 'documents', label: 'Patient Artifacts', icon: BookOpen },
   { id: 'board', label: 'Follow-ups Board', icon: Kanban },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -148,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             {!isCollapsed && (
               <span className="truncate text-slate-600 group-hover:text-slate-900 transition-colors">
-                v{updateData.version || '0.1.0'}
+                v{updateData.version || '0.2.0'}
               </span>
             )}
           </div>

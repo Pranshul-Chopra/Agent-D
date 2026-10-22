@@ -213,7 +213,7 @@ def init_context_db():
 
         CREATE TABLE IF NOT EXISTS proposals (
             id TEXT PRIMARY KEY,
-            patient_id TEXT NOT NULL,
+            patient_id TEXT,
             visit_id TEXT,
             proposal_type TEXT NOT NULL,
             payload JSON NOT NULL,
@@ -223,7 +223,7 @@ def init_context_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             resolved_at TIMESTAMP,
             expires_at TIMESTAMP,
-            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE SET NULL
         );
 
         CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -1368,7 +1368,7 @@ def delete_ticket(ticket_id: str) -> bool:
 # ── Safety Gate & Proposal Queue (Milestone 4) ────────────────────────────────
 
 def create_proposal(
-    patient_id: str,
+    patient_id: Optional[str],
     proposal_type: str,
     payload: Dict[str, Any],
     rationale: str,
@@ -1387,7 +1387,7 @@ def create_proposal(
             INSERT INTO proposals (id, patient_id, visit_id, proposal_type, payload, diff, rationale, status, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
             """,
-            (proposal_id, patient_id, visit_id, proposal_type, payload_json, diff_json, rationale.strip(), now),
+            (proposal_id, patient_id if patient_id else None, visit_id, proposal_type, payload_json, diff_json, rationale.strip(), now),
         )
         conn.commit()
 
@@ -1421,7 +1421,7 @@ def list_proposals(
         query = """
             SELECT pr.*, p.llm_alias as patient_alias, p.display_name as encrypted_display_name
             FROM proposals pr
-            JOIN patients p ON pr.patient_id = p.id
+            LEFT JOIN patients p ON pr.patient_id = p.id
         """
         clauses = []
         params = []
@@ -1529,9 +1529,9 @@ def accept_proposal(proposal_id: str) -> Dict[str, Any]:
         )
         result_detail["log_entry_id"] = entry.get("id")
 
-    elif prop_type in ("ticket", "task", "reminder"):
+    elif prop_type in ("ticket", "task", "reminder", "dashboard_task"):
         t = create_ticket(
-            patient_id=patient_id,
+            patient_id=patient_id if patient_id else None,
             title=payload.get("title", "Clinical Action Item"),
             description=payload.get("description", rationale),
             priority=payload.get("priority", "medium"),
@@ -1539,6 +1539,50 @@ def accept_proposal(proposal_id: str) -> Dict[str, Any]:
             is_reminder=1 if prop_type == "reminder" else 0,
         )
         result_detail["ticket_id"] = t.get("id")
+
+    elif prop_type in ("consultation", "create_consultation", "appointment", "schedule_consultation"):
+        scheduled_time = payload.get("scheduled_time") or payload.get("time") or datetime.now().isoformat()
+        appt = create_appointment(
+            patient_id=patient_id or payload.get("patient_id", ""),
+            scheduled_time=scheduled_time,
+            duration_minutes=int(payload.get("duration_minutes", 15)),
+            appointment_type=payload.get("appointment_type", "follow_up"),
+            reason=payload.get("reason", rationale),
+        )
+        result_detail["appointment_id"] = appt.get("id")
+
+    elif prop_type in ("update_consultation", "reschedule_consultation"):
+        appt_id = payload.get("appointment_id") or payload.get("id")
+        if appt_id:
+            updates = {}
+            for k in ("scheduled_time", "reason", "status", "duration_minutes", "appointment_type"):
+                if k in payload:
+                    updates[k] = payload[k]
+            updated = update_appointment(appt_id, updates)
+            result_detail["updated_appointment"] = updated
+
+    elif prop_type in ("cancel_consultation", "complete_consultation"):
+        appt_id = payload.get("appointment_id") or payload.get("id")
+        new_status = "cancelled" if prop_type == "cancel_consultation" else "completed"
+        if appt_id:
+            updated = update_appointment(appt_id, {"status": new_status})
+            result_detail["updated_appointment"] = updated
+
+    elif prop_type == "update_ticket":
+        t_id = payload.get("ticket_id") or payload.get("id")
+        if t_id:
+            updates = {}
+            for k in ("title", "priority", "status", "due_date", "description"):
+                if k in payload:
+                    updates[k] = payload[k]
+            updated = update_ticket(t_id, updates)
+            result_detail["updated_ticket"] = updated
+
+    elif prop_type == "delete_ticket":
+        t_id = payload.get("ticket_id") or payload.get("id")
+        if t_id:
+            ok = delete_ticket(t_id)
+            result_detail["deleted"] = ok
 
     now = datetime.now(timezone.utc).isoformat()
     with get_context_db() as conn:
