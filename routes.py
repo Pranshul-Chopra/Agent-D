@@ -356,6 +356,23 @@ def api_v1_delete_key(key_id):
     return jsonify({"success": True})
 
 
+@bp.route("/api/v1/keys/status", methods=["GET"])
+def api_v1_keys_status():
+    """Retrieve key pool health, active count, cooldown status, and retry countdown."""
+    provider = request.args.get("provider", "gemini")
+    status = config_db.get_key_pool_status(provider=provider)
+    return jsonify(status)
+
+
+@bp.route("/api/v1/keys/<key_id>/reset-cooldown", methods=["POST"])
+def api_v1_reset_key_cooldown(key_id):
+    """Manually clear rate-limit cooldown status on an API key."""
+    ok = config_db.reset_key_cooldown(key_id)
+    if not ok:
+        return jsonify({"error": "Key not found or could not reset"}), 404
+    return jsonify({"success": True, "key_id": key_id})
+
+
 # ── Clinical Tickets & Action Items (Milestone 4) ─────────────────────────────
 
 @bp.route("/api/v1/tickets", methods=["GET", "POST"])
@@ -471,6 +488,82 @@ def api_v1_proposal_reject(proposal_id):
     try:
         result = context_db.reject_proposal(proposal_id, reason=reason)
         return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# ── Consultation Visits & Auto-Proposal Generator (Milestone 5) ───────────────
+
+@bp.route("/api/v1/visits", methods=["GET", "POST"])
+def api_v1_visits():
+    """List or create clinical consultation visits."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        patient_id = data.get("patient_id")
+        reason = (data.get("reason") or "Routine Clinical Consultation").strip()
+        doctor_notes = data.get("doctor_notes")
+        appointment_id = data.get("appointment_id")
+        if not patient_id:
+            return jsonify({"error": "patient_id is required"}), 400
+
+        try:
+            visit = context_db.create_visit(
+                patient_id=patient_id,
+                reason=reason,
+                doctor_notes=doctor_notes,
+                appointment_id=appointment_id,
+            )
+            return jsonify({"visit": visit}), 201
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    patient_id = request.args.get("patient_id")
+    status = request.args.get("status")
+    limit = int(request.args.get("limit", 50))
+    visits = context_db.list_visits(patient_id=patient_id, status=status, limit=limit)
+    return jsonify({"visits": visits, "count": len(visits)})
+
+
+@bp.route("/api/v1/visits/<visit_id>", methods=["GET", "PATCH"])
+def api_v1_visit_detail(visit_id):
+    """Retrieve or update single consultation visit."""
+    if request.method == "GET":
+        visit = context_db.get_visit(visit_id)
+        if not visit:
+            return jsonify({"error": "Visit not found"}), 404
+        return jsonify({"visit": visit})
+
+    data = request.get_json(silent=True) or {}
+    updated = context_db.update_visit(visit_id, data)
+    if not updated:
+        return jsonify({"error": "Visit not found"}), 404
+    return jsonify({"visit": updated})
+
+
+@bp.route("/api/v1/visits/<visit_id>/close", methods=["POST"])
+def api_v1_close_visit(visit_id):
+    """
+    Executes Visit Closure & Auto-Proposal Generation:
+    1. Sets visit status to 'completed'.
+    2. Encrypts doctor notes in visits table.
+    3. Archives notes to medical log entries.
+    4. Automatically synthesizes differential artifact proposals & follow-up tickets.
+    """
+    data = request.get_json(silent=True) or {}
+    doctor_notes = data.get("doctor_notes", "")
+    outcome_summary = data.get("outcome_summary")
+    vitals = data.get("vitals")
+
+    try:
+        result = context_db.close_visit(
+            visit_id=visit_id,
+            doctor_notes=doctor_notes,
+            outcome_summary=outcome_summary,
+            vitals=vitals,
+        )
+        return jsonify(result), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:

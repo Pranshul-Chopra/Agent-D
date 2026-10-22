@@ -1,7 +1,7 @@
 # Agent-D — Clinical Copilot Workstation
 
-> **Version:** `0.1.0` (Milestones 0, 1, 2, 3, and 4 Completed)  
-> **Status:** Local-First Clinical Workstation with Cryptographic Vault, Context Artifacts, Conversational Command Center, and Doctor-in-Control Proposal Safety Gate
+> **Version:** `0.1.0` (Milestones 0, 1, 2, 3, 4, and 5 Completed)  
+> **Status:** Local-First Clinical Workstation with Cryptographic Vault, Context Artifacts, Conversational Command Center, Doctor-in-Control Proposal Safety Gate, and Consultation Visit Lifecycle with Multi-Key Gateway
 
 Agent-D is a local-first, privacy-focused conversational clinical workstation designed for physicians. It pairs local cryptographic data storage with an intelligent clinical copilot to help doctors manage patient context, review historical visits, curate structured clinical artifacts, track follow-up actions on a Kanban board, and dictate consultation observations without exposing sensitive patient health information to cloud LLMs.
 
@@ -109,6 +109,30 @@ All features listed below are **fully implemented, tested, and working in the co
 - **Approval Engine:** Clicking Approve automatically commits changes to artifacts, logs, or tickets and writes an entry into `audit_events`.
 - **Clinical Kanban Board (`BoardView.tsx`):** 4-column clinical workflow (*To Do / Ordered*, *In Progress*, *Under Review*, *Completed*) backed by `context.db` tickets.
 
+### 6. Visit Lifecycle & Multi-Key Gateway (Milestone 5)
+- **Multi-Key Gemini Inference Gateway (`config_db.py` & `clinical_chat.py`):**
+  - Doctors configure multiple Gemini API keys with priority ordering.
+  - Round-robin key selection with automatic failover upon encountering HTTP 429 / 503 rate limits.
+  - 60-second rate-limit cooldown tagging (`record_key_usage(is_rate_limited=True)`).
+  - Key pool health reporting (`get_key_pool_status()`) and manual cooldown reset (`reset_key_cooldown()`).
+  - Transparent chat fallback to Local Clinical Synthesis with retry countdown notifications when all keys are in cooldown.
+- **Consultation Visit Lifecycle (`context_db.py`):**
+  - Encounters table tracking clinical visits (`open`, `completed`, `cancelled`), reasons, encrypted doctor notes, and outcome summaries.
+  - Starting a visit links to scheduled appointments and sets active encounter status.
+  - Concluding a visit (`POST /api/v1/visits/<id>/close`):
+    - Encrypts consultation notes with AES-256-GCM.
+    - Archives encounter notes to medical log entries (`entry_type="visit_notes"`).
+    - Auto-generates differential proposals (`synthesize_visit_proposals()`) for medication titrations and follow-up lab tickets.
+- **Visits & Encounters Studio (`DocsView.tsx`):**
+  - Dedicated 3rd tab for Consultation Visits alongside Living Artifact and Medical Logs.
+  - Active consultation interface with vital signs capture (BP, HR, Temp, SpO2) and dictation textarea.
+  - 1-click `[✓ Conclude Encounter & Stage Proposals]` action.
+  - In-line staged proposals review and doctor approval.
+  - Historical encounter log with expandable decrypted notes.
+- **Gateway Health Dashboard (`SettingsView.tsx`):**
+  - Live Key Pool Health card showing healthy vs cooling down keys.
+  - Cooldown countdown badges with `[Clear Cooldown]` manual reset buttons.
+
 ---
 
 ## Verification & Automated Test Suites
@@ -122,14 +146,14 @@ python test_m1.py
 # Milestone 2: Artifacts, version snapshots, visual diff engine, medical logs
 python test_m2.py
 
-# Milestones 3 & 4: Live practice context, chat SSE streaming, proposals safety gate, tickets
-python -m unittest test_m3.py test_m4.py
+# Milestones 3, 4 & 5: Live practice context, chat SSE streaming, safety gate, visits, multi-key gateway
+python -m unittest test_m3.py test_m4.py test_m5.py
 
 # React Frontend Compile & Vite Bundle:
 npm --prefix electron run build:ui
 ```
 
-All 4 test suites pass with **100% success**.
+All test suites pass with **100% success**.
 
 ---
 

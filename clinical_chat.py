@@ -332,44 +332,50 @@ def stream_clinical_chat(
     clinical_ctx = clinical_context.get_live_clinical_context(patient_id=patient_id)
     system_prompt = clinical_context.get_clinical_system_prompt(patient_id=patient_id)
 
-    # 5. Check for active Gemini API key
-    active_key = config_db.get_active_rotated_key(provider="gemini")
+    # 5. Check for active Gemini API keys with multi-key rotation and 60s cooldown failover
     full_response = ""
     model_name = "gemini-2.0-flash"
+    success = False
+    tried_key_ids = set()
 
-    if active_key and active_key.get("raw_key"):
-        raw_key = active_key["raw_key"]
-        key_id = active_key["id"]
-
-        # Build contents array for Gemini REST API
-        contents = []
-        # Add history (excluding the current turn which we add last)
-        for turn in prior_messages[:-1]:
-            g_role = "user" if turn.get("role") == "user" else "model"
-            contents.append({
-                "role": g_role,
-                "parts": [{"text": turn.get("content", "")}]
-            })
+    # Build contents array for Gemini REST API
+    contents = []
+    for turn in prior_messages[:-1]:
+        g_role = "user" if turn.get("role") == "user" else "model"
         contents.append({
-            "role": "user",
-            "parts": [{"text": clean_msg}]
+            "role": g_role,
+            "parts": [{"text": turn.get("content", "")}]
         })
+    contents.append({
+        "role": "user",
+        "parts": [{"text": clean_msg}]
+    })
 
-        payload = {
-            "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": contents,
-            "generationConfig": {
-                "temperature": 0.3,
-                "maxOutputTokens": 4096,
-            }
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 4096,
         }
+    }
 
-        candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-lite-latest"]
-        saved_model = config_db.get_setting("active_model")
-        if saved_model and saved_model not in candidate_models:
-            candidate_models.insert(0, saved_model)
+    candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-lite-latest"]
+    saved_model = config_db.get_setting("active_model")
+    if saved_model and saved_model not in candidate_models:
+        candidate_models.insert(0, saved_model)
 
-        success = False
+    while True:
+        active_key = config_db.get_active_rotated_key(provider="gemini", allow_cooldown=False)
+        if not active_key or not active_key.get("raw_key"):
+            break
+        key_id = active_key["id"]
+        if key_id in tried_key_ids:
+            break
+        tried_key_ids.add(key_id)
+        raw_key = active_key["raw_key"]
+
+        key_succeeded = False
         for cand_model in candidate_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{cand_model}:streamGenerateContent?alt=sse&key={raw_key}"
             try:
@@ -403,11 +409,12 @@ def stream_clinical_chat(
                                             yield f"data: {json.dumps({'event': 'token', 'token': token, 'session_id': s_id})}\n\n"
                             except Exception:
                                 pass
+                    key_succeeded = True
                     success = True
                     config_db.record_key_usage(key_id, success=True)
                     break
                 elif res.status_code in (429, 503):
-                    # Rate limit or quota exhaustion: record cooldown and try next
+                    # Rate limit or quota exhaustion: record cooldown and failover to next key in pool
                     config_db.record_key_usage(
                         key_id,
                         success=False,
@@ -416,25 +423,27 @@ def stream_clinical_chat(
                     )
                     break
                 else:
-                    # Model not found or invalid format; try next candidate
+                    # Model not found or incompatible format; try next candidate model
                     continue
             except Exception as e:
                 config_db.record_key_usage(key_id, success=False, error_msg=str(e))
                 break
 
-        if not success or not full_response:
-            # Fall back to local synthesis
-            local_resp = _generate_local_clinical_response(clean_msg, clinical_ctx)
-            model_name = "local-clinical-synthesis"
-            # Stream out word-by-word
-            tokens = re.findall(r"\S+|\n+", local_resp)
-            for tok in tokens:
-                full_response += tok + " "
-                yield f"data: {json.dumps({'event': 'token', 'token': tok + ' ', 'session_id': s_id})}\n\n"
-                time.sleep(0.015)
-    else:
-        # No Gemini key configured — generate local clinical response immediately
-        local_resp = _generate_local_clinical_response(clean_msg, clinical_ctx)
+        if key_succeeded and full_response:
+            break
+
+    if not success or not full_response:
+        # Fall back to local clinical synthesis engine
+        pool_status = config_db.get_key_pool_status(provider="gemini")
+        cooldown_prefix = ""
+        if pool_status.get("all_in_cooldown"):
+            cd_secs = pool_status.get("retry_countdown_seconds", 60)
+            cooldown_prefix = (
+                f"> [!WARNING]\n"
+                f"> **Multi-Key Gateway Cooldown:** All configured Gemini API keys are currently rate-limited (retry in ~{cd_secs}s). Responding via offline Local Clinical Synthesis.\n\n"
+            )
+
+        local_resp = cooldown_prefix + _generate_local_clinical_response(clean_msg, clinical_ctx)
         model_name = "local-clinical-synthesis"
         tokens = re.findall(r"\S+|\n+", local_resp)
         for tok in tokens:

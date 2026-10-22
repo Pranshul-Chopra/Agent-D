@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ========================================
-echo  PM Tool Build
+echo  Agent-D Build
 echo ========================================
 echo.
 

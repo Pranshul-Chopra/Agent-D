@@ -371,6 +371,50 @@ export interface ClinicalProposal {
   resolved_at?: string;
 }
 
+export interface ConsultationVisit {
+  id: string;
+  patient_id: string;
+  visit_date: string;
+  reason: string;
+  doctor_notes?: string;
+  outcome_summary?: string;
+  status: 'open' | 'completed' | 'cancelled';
+  created_at: string;
+  closed_at?: string;
+  patient_alias?: string;
+  patient_display_name?: string;
+  proposals?: ClinicalProposal[];
+}
+
+export interface CreateVisitPayload {
+  patient_id: string;
+  reason: string;
+  doctor_notes?: string;
+  appointment_id?: string;
+}
+
+export interface CloseVisitPayload {
+  doctor_notes: string;
+  outcome_summary?: string;
+  vitals?: {
+    bp?: string;
+    hr?: string;
+    temp?: string;
+    o2?: string;
+    [key: string]: any;
+  };
+}
+
+export interface KeyPoolStatus {
+  provider: string;
+  total_keys: number;
+  healthy_keys: number;
+  cooldown_keys: number;
+  all_in_cooldown: boolean;
+  retry_countdown_seconds: number;
+  keys: (ApiKeyItem & { in_cooldown?: boolean; cooldown_seconds_remaining?: number })[];
+}
+
 export type ArtifactDocType = 'prd' | 'rfc' | 'brief' | 'architecture' | 'notes' | 'breakdown' | 'document';
 
 export interface Artifact {

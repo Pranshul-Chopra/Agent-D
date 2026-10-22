@@ -25,6 +25,10 @@ import type {
   OutpostConfig,
   DynamicBoardSchema,
   PreSyncSnapshot,
+  ConsultationVisit,
+  CreateVisitPayload,
+  CloseVisitPayload,
+  KeyPoolStatus,
 } from '../types';
 
 class BridgeService {
@@ -277,6 +281,12 @@ class BridgeService {
       this.request<{ success: boolean }>(`/api/v1/keys/${id}`, {
         method: 'DELETE',
       }),
+    getKeyPoolStatus: (provider: string = 'gemini') =>
+      this.request<KeyPoolStatus>(`/api/v1/keys/status?provider=${encodeURIComponent(provider)}`),
+    resetKeyCooldown: (keyId: string) =>
+      this.request<{ success: boolean; key_id: string }>(`/api/v1/keys/${keyId}/reset-cooldown`, {
+        method: 'POST',
+      }),
 
     // Projects
     getProjects: (params?: { search?: string; status?: string; health?: string; domain?: string }) => {
@@ -377,6 +387,36 @@ class BridgeService {
           body: JSON.stringify({ reason }),
         }
       ),
+
+    // Consultation Visits & Auto-Proposal Lifecycle (Milestone 5)
+    listVisits: (params?: { patient_id?: string; status?: string; limit?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.patient_id) q.set('patient_id', params.patient_id);
+      if (params?.status) q.set('status', params.status);
+      if (params?.limit) q.set('limit', params.limit.toString());
+      const qs = q.toString() ? `?${q.toString()}` : '';
+      return this.request<{ visits: ConsultationVisit[]; count: number }>(`/api/v1/visits${qs}`);
+    },
+    createVisit: (payload: CreateVisitPayload) =>
+      this.request<{ visit: ConsultationVisit }>('/api/v1/visits', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    getVisit: (id: string) => this.request<{ visit: ConsultationVisit }>(`/api/v1/visits/${id}`),
+    updateVisit: (id: string, updates: Partial<ConsultationVisit>) =>
+      this.request<{ visit: ConsultationVisit }>(`/api/v1/visits/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      }),
+    closeVisit: (id: string, payload: CloseVisitPayload) =>
+      this.request<{
+        visit: ConsultationVisit;
+        log_entry: MedicalLogEntry;
+        proposals: any[];
+      }>(`/api/v1/visits/${id}/close`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
 
     // Tasks / Kanban Tickets
     getTasks: (projectId?: number, status?: string) => {

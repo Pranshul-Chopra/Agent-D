@@ -326,10 +326,11 @@ def get_prompt_template(name: str) -> Optional[str]:
         return row["prompt_content"] if row else None
 
 
-def get_active_rotated_key(provider: str = "gemini") -> Optional[Dict[str, Any]]:
+def get_active_rotated_key(provider: str = "gemini", allow_cooldown: bool = False) -> Optional[Dict[str, Any]]:
     """
     Returns an active, non-cooldown API key with the decrypted raw_key.
     Rotates based on priority and least recently used.
+    If all keys are in cooldown and allow_cooldown is False, returns None.
     """
     now = datetime.now(timezone.utc).isoformat()
     with get_config_db() as conn:
@@ -347,6 +348,8 @@ def get_active_rotated_key(provider: str = "gemini") -> Optional[Dict[str, Any]]
         ).fetchall()
 
         if not rows:
+            if not allow_cooldown:
+                return None
             all_keys = conn.execute(
                 "SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key FROM api_keys k WHERE k.provider = ? AND k.is_active = 1",
                 (provider,),
@@ -361,3 +364,73 @@ def get_active_rotated_key(provider: str = "gemini") -> Optional[Dict[str, Any]]
         item["raw_key"] = crypto_utils.decrypt_text(item["encrypted_key"])
         del item["encrypted_key"]
         return item
+
+
+def get_key_pool_status(provider: str = "gemini") -> Dict[str, Any]:
+    """Returns real-time health and cooldown status of all keys in pool."""
+    now = datetime.now(timezone.utc)
+    with get_config_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT k.id, k.provider, k.key_label, k.masked_key, k.is_active, k.priority,
+                   u.total_calls, u.successful_calls, u.rate_limit_errors, u.cooldown_until,
+                   u.last_used_at, u.last_error_message
+            FROM api_keys k
+            LEFT JOIN key_usage u ON k.id = u.key_id
+            WHERE k.provider = ?
+            ORDER BY k.priority ASC, k.created_at ASC
+            """,
+            (provider,),
+        ).fetchall()
+
+        keys_info = []
+        healthy_cnt = 0
+        cooldown_cnt = 0
+        min_cooldown_remaining = None
+
+        for r in rows:
+            item = dict(r)
+            cd = item.get("cooldown_until")
+            seconds_remaining = 0
+            is_in_cooldown = False
+            if cd:
+                try:
+                    cd_dt = datetime.fromisoformat(cd.replace("Z", "+00:00"))
+                    if cd_dt > now:
+                        is_in_cooldown = True
+                        seconds_remaining = max(0, int((cd_dt - now).total_seconds()))
+                except Exception:
+                    pass
+
+            item["in_cooldown"] = is_in_cooldown
+            item["cooldown_seconds_remaining"] = seconds_remaining
+
+            if item["is_active"] and not is_in_cooldown:
+                healthy_cnt += 1
+            elif is_in_cooldown:
+                cooldown_cnt += 1
+                if min_cooldown_remaining is None or seconds_remaining < min_cooldown_remaining:
+                    min_cooldown_remaining = seconds_remaining
+
+            keys_info.append(item)
+
+        return {
+            "provider": provider,
+            "total_keys": len(keys_info),
+            "healthy_keys": healthy_cnt,
+            "cooldown_keys": cooldown_cnt,
+            "all_in_cooldown": (len(keys_info) > 0 and healthy_cnt == 0),
+            "retry_countdown_seconds": min_cooldown_remaining or 0,
+            "keys": keys_info,
+        }
+
+
+def reset_key_cooldown(key_id: str) -> bool:
+    """Manually clears cooldown status for an API key."""
+    with get_config_db() as conn:
+        cur = conn.execute(
+            "UPDATE key_usage SET cooldown_until = NULL, last_error_message = NULL WHERE key_id = ?",
+            (key_id,),
+        )
+        conn.commit()
+        return cur.rowcount > 0

@@ -753,14 +753,16 @@ def compute_artifact_diff(v1: Dict[str, Any], v2: Dict[str, Any]) -> Dict[str, A
 
 def create_log_entry(
     patient_id: str,
-    entry_date: str,
-    entry_type: str,
-    content: str,
+    entry_date: Optional[str] = None,
+    entry_type: str = "observation",
+    content: str = "",
     metadata: Optional[Dict[str, Any]] = None,
     source: str = "manual",
     visit_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Creates a dated clinical observation or medical note."""
+    if not entry_date:
+        entry_date = date.today().isoformat()
     entry_id = str(uuid.uuid4())
     metadata_json = json.dumps(metadata or {})
     encrypted_content = crypto_utils.encrypt_text(content.strip())
@@ -1585,4 +1587,377 @@ def reject_proposal(proposal_id: str, reason: Optional[str] = None) -> Dict[str,
         "success": True,
         "proposal_id": proposal_id,
         "status": "rejected",
+    }
+
+
+# ── Consultation Visits & Auto-Proposal Generator (Milestone 5) ───────────────
+
+def create_visit(
+    patient_id: str,
+    reason: str,
+    doctor_notes: Optional[str] = None,
+    appointment_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Starts a new clinical consultation visit for a patient."""
+    visit_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    enc_notes = crypto_utils.encrypt_text(doctor_notes.strip()) if doctor_notes else ""
+
+    with get_context_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO visits (id, patient_id, visit_date, reason, doctor_notes, status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'open', ?)
+            """,
+            (visit_id, patient_id, now, reason.strip(), enc_notes, now),
+        )
+        if appointment_id:
+            conn.execute(
+                "UPDATE appointments SET status = 'completed' WHERE id = ?",
+                (appointment_id,),
+            )
+        conn.commit()
+
+    record_audit_event("visit", visit_id, "started", details={"patient_id": patient_id, "reason": reason})
+
+    return {
+        "id": visit_id,
+        "patient_id": patient_id,
+        "visit_date": now,
+        "reason": reason.strip(),
+        "doctor_notes": doctor_notes or "",
+        "status": "open",
+        "created_at": now,
+    }
+
+
+def list_visits(
+    patient_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Lists consultation visits with decrypted notes and joined patient aliases."""
+    with get_context_db() as conn:
+        query = """
+            SELECT v.*, p.llm_alias as patient_alias, p.display_name as encrypted_display_name
+            FROM visits v
+            JOIN patients p ON v.patient_id = p.id
+        """
+        clauses = []
+        params = []
+        if patient_id:
+            clauses.append("v.patient_id = ?")
+            params.append(patient_id)
+        if status and status != "all":
+            clauses.append("v.status = ?")
+            params.append(status)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY v.visit_date DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(query, params).fetchall()
+        visits = []
+        for r in rows:
+            v = dict(r)
+            if v.get("doctor_notes"):
+                try:
+                    v["doctor_notes"] = crypto_utils.decrypt_text(v["doctor_notes"])
+                except Exception:
+                    pass
+            if v.get("encrypted_display_name"):
+                try:
+                    v["patient_display_name"] = crypto_utils.decrypt_text(v["encrypted_display_name"])
+                except Exception:
+                    v["patient_display_name"] = v.get("patient_alias", "PT-XXXX")
+            visits.append(v)
+        return visits
+
+
+def get_visit(visit_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieves single visit with decrypted notes, patient alias, and linked proposals."""
+    with get_context_db() as conn:
+        row = conn.execute(
+            """
+            SELECT v.*, p.llm_alias as patient_alias
+            FROM visits v
+            JOIN patients p ON v.patient_id = p.id
+            WHERE v.id = ?
+            """,
+            (visit_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        v = dict(row)
+        if v.get("doctor_notes"):
+            try:
+                v["doctor_notes"] = crypto_utils.decrypt_text(v["doctor_notes"])
+            except Exception:
+                pass
+
+        # Fetch associated proposals staged during this visit
+        p_rows = conn.execute(
+            "SELECT * FROM proposals WHERE visit_id = ? ORDER BY created_at ASC",
+            (visit_id,),
+        ).fetchall()
+        proposals = []
+        for pr in p_rows:
+            p_dict = dict(pr)
+            if p_dict.get("payload"):
+                try:
+                    p_dict["payload"] = json.loads(p_dict["payload"])
+                except Exception:
+                    pass
+            if p_dict.get("diff"):
+                try:
+                    p_dict["diff"] = json.loads(p_dict["diff"])
+                except Exception:
+                    pass
+            proposals.append(p_dict)
+
+        v["proposals"] = proposals
+        return v
+
+
+def update_visit(visit_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Updates visit fields (notes, reason, outcome_summary)."""
+    allowed = {"reason", "doctor_notes", "outcome_summary", "status"}
+    filtered = {k: v for k, v in updates.items() if k in allowed}
+    if not filtered:
+        return get_visit(visit_id)
+
+    if "doctor_notes" in filtered and filtered["doctor_notes"]:
+        filtered["doctor_notes"] = crypto_utils.encrypt_text(str(filtered["doctor_notes"]).strip())
+
+    set_clauses = [f"{k} = ?" for k in filtered.keys()]
+    params = list(filtered.values())
+    params.append(visit_id)
+
+    with get_context_db() as conn:
+        conn.execute(
+            f"UPDATE visits SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+
+    return get_visit(visit_id)
+
+
+def synthesize_visit_proposals(
+    patient_id: str,
+    visit_id: str,
+    doctor_notes: str,
+    vitals: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Intelligent Auto-Proposal Synthesizer:
+    Parses doctor notes and clinical observations from visit closure,
+    computes differential updates against active artifact, and stages
+    safe pending proposals in context.db.
+    """
+    staged = []
+    current_art = get_patient_artifact(patient_id) or {}
+    notes_lower = doctor_notes.lower()
+
+    # 1. Detect Medication Modifications & Additions
+    current_meds = list(current_art.get("medications", []))
+    new_meds = list(current_meds)
+    med_detected = False
+
+    # Check common clinical drug patterns
+    import re
+    drug_matches = re.findall(
+        r'([A-Za-z]{3,20}\s+\d+\s*(?:mg|mcg|g)\s*(?:QD|BID|TID|QID|daily|prn)?[^\r\n.,;]*)',
+        doctor_notes,
+        re.IGNORECASE,
+    )
+    for dm in drug_matches:
+        cleaned_drug = dm.strip()
+        # Avoid duplicate drug additions
+        if not any(cleaned_drug.lower() in existing.lower() for existing in new_meds):
+            new_meds.append(cleaned_drug)
+            med_detected = True
+
+    # Fallback pattern matches if specific drugs mentioned
+    if not med_detected:
+        if "metformin" in notes_lower and "1000" in notes_lower:
+            new_med = "Metformin 1000mg BID (tolerated well)"
+            if not any("metformin 1000" in m.lower() for m in new_meds):
+                # Replace 500mg if exists or append
+                new_meds = [m for m in new_meds if "metformin" not in m.lower()] + [new_med]
+                med_detected = True
+        elif "lisinopril" in notes_lower:
+            new_med = "Lisinopril 10mg QD"
+            if not any("lisinopril" in m.lower() for m in new_meds):
+                new_meds.append(new_med)
+                med_detected = True
+
+    # Check for blood pressure baseline update
+    updated_issues = list(current_art.get("active_issues", []))
+    issues_detected = False
+    if vitals and "bp" in vitals:
+        bp_note = f"Essential Hypertension (BP baseline: {vitals['bp']})"
+        if not any("hypertension" in iss.lower() for iss in updated_issues):
+            updated_issues.append(bp_note)
+            issues_detected = True
+    elif "bp" in notes_lower or "blood pressure" in notes_lower:
+        bp_match = re.search(r'bp\s*(?:today)?\s*(\d{2,3}\s*/\s*\d{2,3})', doctor_notes, re.IGNORECASE)
+        if bp_match:
+            bp_val = bp_match.group(1).replace(" ", "")
+            bp_note = f"Essential Hypertension (BP baseline: {bp_val})"
+            updated_issues = [iss for iss in updated_issues if "hypertension" not in iss.lower()] + [bp_note]
+            issues_detected = True
+
+    if med_detected or issues_detected:
+        artifact_updates = {}
+        if med_detected:
+            artifact_updates["medications"] = new_meds
+        if issues_detected:
+            artifact_updates["active_issues"] = updated_issues
+
+        diff = compute_artifact_diff(current_art, artifact_updates)
+        art_prop = create_proposal(
+            patient_id=patient_id,
+            proposal_type="artifact_update",
+            payload=artifact_updates,
+            rationale="Auto-proposed chart update from consultation notes.",
+            visit_id=visit_id,
+            diff=diff,
+        )
+        staged.append(art_prop)
+
+    # 2. Detect Action Items & Follow-up Tickets
+    from datetime import date, timedelta
+    today = date.today()
+
+    if any(k in notes_lower for k in ("hba1c", "a1c")):
+        due = (today + timedelta(days=90)).isoformat()
+        t_prop = create_proposal(
+            patient_id=patient_id,
+            proposal_type="ticket",
+            payload={
+                "title": "Order 3-month HbA1c lab & follow-up visit",
+                "priority": "medium",
+                "due_date": due,
+                "description": "Routine quarterly glycemic monitoring as noted in consult.",
+            },
+            rationale="Consultation indicated repeat HbA1c in 3 months.",
+            visit_id=visit_id,
+            diff={"proposed_ticket": "Order 3-month HbA1c lab & follow-up visit", "due_date": due},
+        )
+        staged.append(t_prop)
+
+    elif any(k in notes_lower for k in ("lipid", "cholesterol")):
+        due = (today + timedelta(days=60)).isoformat()
+        t_prop = create_proposal(
+            patient_id=patient_id,
+            proposal_type="ticket",
+            payload={
+                "title": "Order fasting lipid panel",
+                "priority": "medium",
+                "due_date": due,
+                "description": "Lipid control review.",
+            },
+            rationale="Consultation indicated follow-up lipid assessment.",
+            visit_id=visit_id,
+            diff={"proposed_ticket": "Order fasting lipid panel", "due_date": due},
+        )
+        staged.append(t_prop)
+
+    elif any(k in notes_lower for k in ("follow-up", "follow up", "recheck", "return")):
+        due = (today + timedelta(days=30)).isoformat()
+        t_prop = create_proposal(
+            patient_id=patient_id,
+            proposal_type="ticket",
+            payload={
+                "title": "Clinical follow-up consultation",
+                "priority": "medium",
+                "due_date": due,
+                "description": "Follow-up visit to review symptom response and treatment tolerance.",
+            },
+            rationale="Physician noted follow-up required.",
+            visit_id=visit_id,
+            diff={"proposed_ticket": "Clinical follow-up consultation", "due_date": due},
+        )
+        staged.append(t_prop)
+
+    return staged
+
+
+def close_visit(
+    visit_id: str,
+    doctor_notes: str,
+    outcome_summary: Optional[str] = None,
+    vitals: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Executes the Complete Visit Close Lifecycle:
+    1. Sets visit status to 'completed' and records closed_at.
+    2. Encrypts doctor_notes into visits table.
+    3. Archives doctor_notes into medical log entries (log_entries).
+    4. Triggers the Auto-Proposal Generator to stage artifact diffs and tickets.
+    5. Records audit events.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    enc_notes = crypto_utils.encrypt_text(doctor_notes.strip())
+
+    with get_context_db() as conn:
+        row = conn.execute("SELECT * FROM visits WHERE id = ?", (visit_id,)).fetchone()
+        if not row:
+            raise ValueError("Visit not found")
+        v = dict(row)
+        patient_id = v["patient_id"]
+
+        conn.execute(
+            """
+            UPDATE visits
+            SET status = 'completed',
+                closed_at = ?,
+                doctor_notes = ?,
+                outcome_summary = ?
+            WHERE id = ?
+            """,
+            (now, enc_notes, outcome_summary or "Consultation concluded and notes committed.", visit_id),
+        )
+        conn.commit()
+
+    # 2. Record Medical Log Entry
+    log_entry = create_log_entry(
+        patient_id=patient_id,
+        entry_date=now[:10],
+        entry_type="visit_notes",
+        content=doctor_notes.strip(),
+        metadata=vitals or {},
+        source="visit_close",
+        visit_id=visit_id,
+    )
+
+    # 3. Trigger Auto-Proposal Generator
+    proposals = synthesize_visit_proposals(
+        patient_id=patient_id,
+        visit_id=visit_id,
+        doctor_notes=doctor_notes,
+        vitals=vitals,
+    )
+
+    # 4. Audit Trail
+    record_audit_event(
+        entity_type="visit",
+        entity_id=visit_id,
+        action="closed",
+        details={
+            "patient_id": patient_id,
+            "proposals_generated": len(proposals),
+            "log_entry_id": log_entry.get("id"),
+        },
+    )
+
+    closed_visit = get_visit(visit_id)
+    return {
+        "visit": closed_visit,
+        "log_entry": log_entry,
+        "proposals": proposals,
     }

@@ -20,9 +20,10 @@ import {
   Key,
   HardDrive,
   Check,
+  RotateCcw,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
-import type { LLMStatus, LLMProviderPref, LLMConfigPayload, ApiKeyItem } from '../types';
+import type { LLMStatus, LLMProviderPref, LLMConfigPayload, ApiKeyItem, KeyPoolStatus } from '../types';
 
 interface SettingsViewProps {
   onOpenOnboarding?: () => void;
@@ -44,6 +45,7 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
 
   // Multi-Key Management State
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
+  const [poolStatus, setPoolStatus] = useState<KeyPoolStatus | null>(null);
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [newKeyValue, setNewKeyValue] = useState('');
   const [showNewKey, setShowNewKey] = useState(false);
@@ -94,8 +96,21 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
     try {
       const res = await AppBridge.api.listKeys();
       setApiKeys(res.keys || []);
+      const pool = await AppBridge.api.getKeyPoolStatus('gemini');
+      setPoolStatus(pool);
     } catch (err: any) {
       console.error('Failed to load keys:', err);
+    }
+  };
+
+  const handleResetCooldown = async (keyId: string) => {
+    try {
+      await AppBridge.api.resetKeyCooldown(keyId);
+      showNotification('success', 'Rate-limit cooldown cleared for key.');
+      await loadKeys();
+      await loadStatus();
+    } catch (err: any) {
+      showNotification('error', `Failed to reset cooldown: ${err.message}`);
     }
   };
 
@@ -297,6 +312,42 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
             </div>
           </div>
 
+          {/* Key Pool Health Status */}
+          {poolStatus && poolStatus.total_keys > 0 && (
+            <div
+              className={`p-3 rounded-lg border flex items-center justify-between text-xs ${
+                poolStatus.all_in_cooldown
+                  ? 'bg-amber-50 border-amber-300 text-amber-900'
+                  : 'bg-[#F8FAFC] border-[#E2E8F0] text-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    poolStatus.all_in_cooldown
+                      ? 'bg-amber-500 animate-pulse'
+                      : 'bg-emerald-500'
+                  }`}
+                />
+                <span className="font-bold">
+                  {poolStatus.all_in_cooldown
+                    ? 'All Keys in Rate-Limit Cooldown'
+                    : 'Gateway Rotation Active'}
+                </span>
+                <span className="text-slate-500">•</span>
+                <span>
+                  <strong className="text-slate-900">{poolStatus.healthy_keys}</strong> of{' '}
+                  <strong className="text-slate-900">{poolStatus.total_keys}</strong> keys ready
+                </span>
+              </div>
+              {poolStatus.all_in_cooldown && (
+                <span className="font-semibold text-amber-800">
+                  Retry window in ~{poolStatus.retry_countdown_seconds}s
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Key List */}
           <div className="space-y-2">
             {apiKeys.length === 0 ? (
@@ -306,42 +357,65 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
                 <p className="text-[11px] text-slate-400 mt-0.5">Add your primary key below to start using Copilot.</p>
               </div>
             ) : (
-              apiKeys.map((k, idx) => (
-                <div
-                  key={k.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-5 h-5 rounded-full bg-white border border-[#E2E8F0] text-[11px] font-bold text-slate-600 flex items-center justify-center">
-                      {idx + 1}
-                    </span>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900">{k.key_label}</span>
-                        <span className="font-mono text-xs px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-slate-600">
-                          {k.masked_key}
-                        </span>
-                        {k.cooldown_until && (
-                          <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                            Cooldown
+              apiKeys.map((k, idx) => {
+                const poolItem = poolStatus?.keys?.find((pk) => pk.id === k.id);
+                const inCooldown = !!k.cooldown_until || poolItem?.in_cooldown;
+                const secsRemaining = poolItem?.cooldown_seconds_remaining;
+
+                return (
+                  <div
+                    key={k.id}
+                    className="flex items-center justify-between p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-5 h-5 rounded-full bg-white border border-[#E2E8F0] text-[11px] font-bold text-slate-600 flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900">{k.key_label}</span>
+                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-white border border-[#E2E8F0] text-slate-600">
+                            {k.masked_key}
                           </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        Calls: {k.total_calls || 0} • Success: {k.successful_calls || 0} • Rate Limits: {k.rate_limit_errors || 0}
+                          {inCooldown ? (
+                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300 flex items-center gap-1">
+                              <span>Cooldown</span>
+                              {secsRemaining ? <span>({secsRemaining}s)</span> : null}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-300">
+                              Healthy
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          Calls: {k.total_calls || 0} • Success: {k.successful_calls || 0} • Rate Limits: {k.rate_limit_errors || 0}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <button
-                    onClick={() => handleDeleteKey(k.id)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                    title="Remove key from vault"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))
+                    <div className="flex items-center gap-1">
+                      {inCooldown && (
+                        <button
+                          onClick={() => handleResetCooldown(k.id)}
+                          className="flex items-center gap-1 px-2 py-1 rounded bg-white hover:bg-slate-100 border border-[#E2E8F0] text-[11px] font-semibold text-slate-700 cursor-pointer"
+                          title="Manually clear 60-second cooldown"
+                        >
+                          <RotateCcw className="w-3 h-3 text-[#2563EB]" />
+                          <span>Clear Cooldown</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteKey(k.id)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="Remove key from vault"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
 

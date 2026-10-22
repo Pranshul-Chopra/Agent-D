@@ -6,9 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [0.1.0] — 2026-10-21
+## [0.1.0] — 2026-10-22
 
-### Milestone 4: Safety Gate & Proposal Queue (Current Release)
+### Milestone 5: Visit Lifecycle & Multi-Key Gateway (Current Release)
+
+#### Added
+- **Multi-Key Gemini Inference Gateway (`config_db.py` & `clinical_chat.py`):**
+  - Storing up to N doctor-supplied Gemini API keys with priority ordering in `api_keys`.
+  - Automatic round-robin rotation via `get_active_rotated_key()`.
+  - 60-second rate-limit cooldown tagging (`record_key_usage(is_rate_limited=True)`) upon receiving HTTP 429 / 503 from Gemini endpoints.
+  - Automatic key failover: immediately routes generation requests to the next healthy key in the rotation pool.
+  - Cooldown monitoring & countdown calculation via `get_key_pool_status()`.
+  - Manual rate-limit cooldown reset via `reset_key_cooldown()`.
+  - Transparent chat fallback to Local Clinical Synthesis engine when all keys are cooling down, displaying the remaining retry countdown.
+- **Clinical Consultation Visit Lifecycle (`context_db.py`):**
+  - `visits` table tracking consultation encounters (`open`, `completed`, `cancelled`), visit dates, reasons, encrypted notes, and outcome summaries.
+  - `create_visit()`: Starts a consultation encounter and transitions linked scheduled appointments to completed.
+  - `close_visit()`: Concludes an encounter, records `closed_at`, encrypts notes with AES-256-GCM, archives notes into `log_entries` (`entry_type="visit_notes"`), and triggers auto-proposal synthesis.
+  - `list_visits()` and `get_visit()`: Retrieve decrypted visit notes and history joined with patient cryptographic aliases.
+- **Intelligent Auto-Proposal Synthesizer (`context_db.py`):**
+  - Evaluates consultation dictation against the patient's active artifact and clinical baselines.
+  - Detects drug modifications/titrations (e.g., Metformin, Lisinopril, Amlodipine) and stages pending `artifact_update` proposals with field-level diffs.
+  - Detects laboratory orders (HbA1c, lipid panel) and return consults, staging pending `ticket` proposals with due dates.
+  - Safety Gate Enforcement: All synthesized items remain pending in `proposals` until explicit doctor review and approval.
+- **Consultation Visits & Encounters Studio (`DocsView.tsx`):**
+  - Added 3rd tab: `Visits & Encounters` alongside Living Context Artifact and Medical Logs.
+  - Active Consultation Encounter interface: live encounter status, patient alias banner, vitals capture (BP, HR, Temp, SpO2), and consultation dictation textarea.
+  - Interactive Action: `[✓ Conclude Encounter & Stage Proposals]` executing one-click closing, log archiving, and proposal formulation.
+  - In-line Staged Proposals Review: Displays generated differential proposals directly inside the encounter review panel with `[Approve & Commit]` and `[Reject]` buttons.
+  - Chronological history of past encounters with expandable decrypted physician notes.
+- **Multi-Key Gateway Health Dashboard (`SettingsView.tsx`):**
+  - Live Key Pool Health card displaying total keys, healthy keys, and cooldown status.
+  - Real-time cooldown countdown pills and `[Clear Cooldown]` manual reset buttons.
+- **REST Endpoints (`routes.py`):**
+  - `GET /api/v1/keys/status`: Returns key pool health, counts, and retry countdown.
+  - `POST /api/v1/keys/<id>/reset-cooldown`: Clears rate-limit cooldown for a key.
+  - `GET /api/v1/visits`: Lists patient consultation visits.
+  - `POST /api/v1/visits`: Starts a new consultation visit.
+  - `GET /api/v1/visits/<id>`: Fetches single visit details with staged proposals.
+  - `PATCH /api/v1/visits/<id>`: Updates visit notes, reason, or status.
+  - `POST /api/v1/visits/<id>/close`: Executes visit closure and auto-proposal generation.
+- **Milestone 5 Automated Test Suite (`test_m5.py`):**
+  - 100% passing tests verifying multi-key rotation, 429 cooldown tagging, failover, pool status reporting, visit lifecycle, auto-proposal synthesis, Safety Gate sign-off, and chat cooldown resilience.
+
+---
+
+### Milestone 4: Safety Gate & Proposal Queue
 
 #### Added
 - **Medical Tool Layer (`clinical_tools.py`):**
