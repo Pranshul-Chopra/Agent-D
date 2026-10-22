@@ -161,8 +161,7 @@ export const ConsultationsView: React.FC<ConsultationsViewProps> = ({
     if (!activeNoteAppt || isSavingNote) return;
     setIsSavingNote(true);
     try {
-      await AppBridge.api.createLogEntry({
-        patient_id: activeNoteAppt.patient_id,
+      await AppBridge.api.createPatientLog(activeNoteAppt.patient_id, {
         entry_type: 'observation',
         content: `Consultation Encounter Note: ${encounterNoteText.trim()}`,
         metadata: { appointment_id: activeNoteAppt.id },

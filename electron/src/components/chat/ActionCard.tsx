@@ -158,8 +158,11 @@ export const ActionCard: React.FC<ActionCardProps> = ({
         // Direct artifact patch if proposed without pre-saved ID
         const artRes = await AppBridge.api.updatePatientArtifact(
           data.patient_id,
-          data.updates,
-          data.rationale || 'Copilot approved proposal'
+          {
+            ...data.updates,
+            change_summary: data.rationale || 'Copilot approved proposal',
+            author_type: 'copilot_approved',
+          }
         );
         setIsApplied(true);
         onApplied?.(artRes, computedActionKey);

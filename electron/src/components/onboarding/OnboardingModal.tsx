@@ -21,7 +21,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import AppBridge from '../../services/bridge';
-import type { Project, CreateProjectPayload, LLMConfigPayload } from '../../types';
+import type { Project, CreateProjectPayload, LLMConfigPayload, Task } from '../../types';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -131,7 +131,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
           // If seedBacklog requested, create initial calibrated user stories
           if (seedBacklog) {
-            const seedStories = [
+            const seedStories: Partial<Task>[] = [
               {
                 title: 'Design high-throughput SQLite schema & migrations',
                 description: 'Define relational tables and foreign keys with WAL mode.',
@@ -145,7 +145,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 title: 'Implement interactive frontend workbench UI',
                 description: 'Build responsive single-DOM interface with keyboard navigation.',
                 status: 'in_progress',
-                priority: 'critical',
+                priority: 'urgent',
                 story_points: 5,
                 acceptance_criteria:
                   'Given desktop viewport, When user navigates tabs, Then view transitions complete smoothly.',
@@ -154,7 +154,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 title: 'Verify multi-format export and automated tests',
                 description: 'Execute end-to-end regression suites across DOCX and Markdown exports.',
                 status: 'todo',
-                priority: 'medium',
+                priority: 'med',
                 story_points: 2,
                 acceptance_criteria:
                   'Given living document, When exported to DOCX, Then 1-inch margins and tables format accurately.',

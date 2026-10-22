@@ -5,7 +5,7 @@ rem Requires: Python 3.11+, Node.js 20+, npm
 
 echo.
 echo ========================================================
-echo   Agent-D Desktop Production Release Builder v0.2.0
+echo   Agent-D Desktop Production Release Builder v0.3.0
 echo ========================================================
 echo.
 

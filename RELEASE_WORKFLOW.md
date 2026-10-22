@@ -1,8 +1,8 @@
 # Agent-D — Desktop Release Workflow & Packaging Specification
 
-> **Target Version:** `0.2.0`  
+> **Target Version:** `0.3.0`  
 > **Target Platform:** Windows 10 / 11 (x64)  
-> **Binary Types:** NSIS Interactive Setup Wizard (`Agent-D-Setup-0.2.0.exe`) & Standalone Portable Executable (`Agent-D-Portable-0.2.0.exe`)  
+> **Binary Types:** NSIS Smooth One-Click Installer (`Agent-D-Setup-0.3.0.exe`) & Standalone Portable Executable (`Agent-D-Portable-0.3.0.exe`)  
 > **Security Baseline:** Hardware-bound AES-256-GCM encryption, 32-byte launch bearer token, zero cloud PII leakage.
 
 ---
@@ -62,8 +62,8 @@ Agent-D combines a high-performance React 19 UI inside an Electron 44 desktop sh
 │                                    ▼                                  │
 │  ┌─────────────────────────────────────────────────────────────────┐  │
 │  │                      electron-builder Output                    │  │
-│  │  - release/Agent-D-Setup-0.2.0.exe (NSIS Setup Wizard with shortcuts)    │  │
-│  │  - release/Agent-D-Portable-0.2.0.exe (Standalone Portable)             │  │
+│  │  - release/Agent-D-Setup-0.3.0.exe (NSIS Smooth One-Click Installer with shortcuts) │  │
+│  │  - release/Agent-D-Portable-0.3.0.exe (Standalone Portable)                         │  │
 │  │  - release/latest.yml (Auto-update feed manifest)                       │  │
 │  └─────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────┘
@@ -134,8 +134,8 @@ npm run build
 cd ..
 ```
 *Output in `release/`:*
-- `Agent-D-Setup-0.2.0.exe` (NSIS Setup Wizard with desktop & start menu shortcuts)
-- `Agent-D-Portable-0.2.0.exe` (Standalone Portable Executable)
+- `Agent-D-Setup-0.3.0.exe` (NSIS Smooth One-Click Installer with desktop & start menu shortcuts, zero wizard pages)
+- `Agent-D-Portable-0.3.0.exe` (Standalone Portable Executable)
 - `latest.yml` (Auto-updater differential manifest)
 
 ---

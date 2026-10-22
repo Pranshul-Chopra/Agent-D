@@ -25,10 +25,56 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '0.3.0',
+    codename: 'Clinical Doctor Platform',
+    date: 'October 2026',
+    isLatest: true,
+    title: 'Smooth One-Click Installer & Hardened Clinical Workbench',
+    summary:
+      'Agent-D v0.3.0 introduces a seamless zero-prompt one-click desktop installer, comprehensive TypeScript validation, Command Palette stability, and official landing page integration.',
+    highlights: [
+      {
+        id: 'smooth-installer',
+        icon: 'zap',
+        title: 'Smooth One-Click Setup',
+        tag: 'Desktop Experience',
+        description:
+          'Streamlined NSIS installer that bypasses tedious directory and finish wizard screens, auto-installs to user local space, creates desktop shortcuts, and launches immediately.',
+      },
+      {
+        id: 'hardened-workbench',
+        icon: 'shield',
+        title: 'Hardened Clinical Architecture',
+        tag: 'Reliability',
+        description:
+          'Comprehensive typecheck verification across Command Palette, Titlebar, Action Cards, and Consultations view with zero compiler warnings.',
+      },
+      {
+        id: 'approval-gate',
+        icon: 'bot',
+        title: 'Contextual Clinical Governance',
+        tag: 'Safety',
+        description:
+          'Full-stack doctor-in-the-loop safety protocol ensuring that every AI action requires explicit clinical confirmation before touching live patient records.',
+      },
+    ],
+    sections: [
+      {
+        title: 'Production Improvements',
+        type: 'improvement',
+        items: [
+          'Instant one-click desktop setup installer with automatic shortcut creation.',
+          'Command Palette icon mapping fix and strict TypeScript hardening.',
+          'Synchronized release packaging with automated updater manifests.',
+        ],
+      },
+    ],
+  },
+  {
     version: '0.2.0',
     codename: 'Clinical Agility & Encounters',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'Interactive Calendar, Dedicated Consultations & Slash Commands',
     summary:
       'Agent-D v0.2.0 elevates clinical workflow fluidity with an interactive 7-column calendar widget from PranshulOS, a dedicated Consultations & Live Encounters module, comprehensive Copilot CRUD access guarded by the approval-first safety gate, and a keyboard-driven slash command palette.',

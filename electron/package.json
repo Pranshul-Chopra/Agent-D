@@ -1,6 +1,6 @@
 {
   "name": "agent-d",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent-D — Conversational-First Local Clinical Workspace",
   "main": "main.js",
   "author": "Pranshul Chopra",
@@ -90,10 +90,10 @@
       ]
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": "always",
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Agent-D",
       "artifactName": "Agent-D-Setup-${version}.${ext}",

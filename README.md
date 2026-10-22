@@ -1,6 +1,6 @@
 # Agent-D — Clinical Copilot Workstation
 
-> **Version:** `0.2.0` (Milestones 0–5 Completed; Calendar, Consultations & Slash Commands Active)  
+> **Version:** `0.3.0` (Clinical Doctor Contextual Platform Active)  
 > **Status:** Local-First Clinical Workstation with Cryptographic Vault, Context Artifacts, Conversational Command Center, Doctor-in-Control Proposal Safety Gate, and Consultation Visit Lifecycle with Multi-Key Gateway
 
 Agent-D is a local-first, privacy-focused conversational clinical workstation designed for physicians. It pairs local cryptographic data storage with an intelligent clinical copilot to help doctors manage patient context, review historical visits, curate structured clinical artifacts, track follow-up actions on a Kanban board, and dictate consultation observations without exposing sensitive patient health information to cloud LLMs.

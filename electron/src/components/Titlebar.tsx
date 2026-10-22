@@ -15,6 +15,7 @@ const tabTitles: Record<NavTab, string> = {
   chat: 'Conversational Copilot',
   home: 'Clinical Dashboard',
   patients: 'Patients Manager',
+  consultations: 'Active Consultations & Encounters',
   documents: 'Patient Artifacts',
   board: 'Follow-ups Kanban Board',
   settings: 'Settings & Security Vault',
@@ -23,7 +24,7 @@ const tabTitles: Record<NavTab, string> = {
 export const Titlebar: React.FC<TitlebarProps> = ({
   activeTab,
   activePatient,
-  version = '0.2.0',
+  version = '0.3.0',
   onOpenPalette,
   onOpenWhatsNew,
   onOpenPatientDirectory,

@@ -187,7 +187,7 @@ export const App: React.FC = () => {
       <Titlebar
         activeTab={activeTab}
         activePatient={activePatient}
-        version={updateData.version || '0.2.0'}
+        version={updateData.version || '0.3.0'}
         onOpenPalette={() => setIsPaletteOpen(true)}
         onOpenWhatsNew={handleOpenWhatsNew}
         onOpenPatientDirectory={() => navigateWithTransition('patients')}

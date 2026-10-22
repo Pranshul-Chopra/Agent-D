@@ -15,6 +15,7 @@ import {
   Sparkles,
   Columns3,
   Stethoscope,
+  Calendar,
 } from 'lucide-react';
 import type { NavTab, Patient } from '../types';
 import AppBridge from '../services/bridge';
@@ -425,7 +426,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-blue-600 font-semibold">Agent-D</span>
-            <span>v0.2.0</span>
+            <span>v0.3.0</span>
           </div>
         </div>
       </div>

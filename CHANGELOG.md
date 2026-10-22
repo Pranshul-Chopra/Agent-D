@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.3.0] — 2026-10-22
+
+### Smooth One-Click Setup & Hardened Workbench (Current Release)
+
+#### Added
+- **Smooth One-Click Windows Setup (`electron/package.json`):**
+  - Configured `oneClick: true`, removing manual directory selection and finish wizard screens.
+  - Automatic silent installation to user AppData, instant desktop and Start menu shortcut creation, and immediate launch.
+- **Strict TypeScript Hardening:**
+  - Resolved `Calendar` icon reference in Command Palette.
+  - Aligned Titlebar, ActionCard, and Consultations view types with zero TypeScript compiler errors.
+- **Official Landing Page Repository (`Agent-D_LandingPage`):**
+  - Standalone Next.js marketing landing page adapted from PranshulOS template and styled in Agent-D's clinical white and royal blue theme.
+
+#### Changed
+- Bumped application version to `0.3.0` across all backend, frontend, build scripts, and documentation manifests.
+
+---
+
 ## [0.2.0] — 2026-10-22
 
 ### Clinical Agility, Consultations & Approval-First CRUD (Current Release)

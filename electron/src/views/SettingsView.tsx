@@ -23,6 +23,7 @@ import {
   RotateCcw,
   ArrowUpCircle,
   Download,
+  ShieldCheck,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
 import type { LLMStatus, LLMProviderPref, LLMConfigPayload, ApiKeyItem, KeyPoolStatus } from '../types';
@@ -222,7 +223,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
     setProbingOllama(true);
     try {
       const data = await AppBridge.api.probeOllama();
-      if (data.running) {
+      if (data.available) {
         showNotification('success', `Ollama detected! Available models: ${data.models.join(', ') || 'none'}`);
         await loadStatus();
       } else {
@@ -767,7 +768,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
               <div className="text-xs text-slate-600 space-y-1">
                 <div className="flex items-center gap-2">
                   <span>Version:</span>
-                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.2.0'}</span>
+                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.3.0'}</span>
                   <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Production Release
                   </span>
