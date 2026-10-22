@@ -92,7 +92,7 @@ function setupAutoUpdater() {
       version: info.version,
       releaseDate: info.releaseDate,
       isPortable,
-      downloadUrl: isPortable ? `https://github.com/Pranshul-Chopra/pm_tool/releases/tag/v${info.version}` : null,
+      downloadUrl: isPortable ? `https://github.com/Pranshul-Chopra/Agent-D/releases/tag/v${info.version}` : null,
     });
   });
 

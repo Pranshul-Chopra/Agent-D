@@ -1,0 +1,65 @@
+name: Release Agent-D
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run Backend Regression Test Suite
+        env:
+          AGENT_D_AUTH_TOKEN: 'ci_test_token_32_bytes_release_check'
+        run: |
+          python test_m1.py
+          python test_m2.py
+          python -m unittest test_m3.py test_m4.py test_m5.py
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'electron/package-lock.json'
+
+      - name: Install Electron Dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Build React SPA Frontend
+        working-directory: electron
+        run: npm run build:ui
+
+      - name: Freeze Python Backend with PyInstaller
+        run: |
+          python -m PyInstaller flask.spec --noconfirm
+
+      - name: Package & Publish Electron Release
+        working-directory: electron
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          npx electron-builder --win --publish always

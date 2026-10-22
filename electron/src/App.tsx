@@ -230,7 +230,10 @@ export const App: React.FC = () => {
               />
             )}
             {activeTab === 'settings' && (
-              <SettingsView onOpenOnboarding={() => setIsOnboardingOpen(true)} />
+              <SettingsView
+                onOpenOnboarding={() => setIsOnboardingOpen(true)}
+                onOpenWhatsNew={() => setIsWhatsNewOpen(true)}
+              />
             )}
           </ErrorBoundary>
         </main>

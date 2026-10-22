@@ -21,17 +21,24 @@ import {
   HardDrive,
   Check,
   RotateCcw,
+  ArrowUpCircle,
+  Download,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
 import type { LLMStatus, LLMProviderPref, LLMConfigPayload, ApiKeyItem, KeyPoolStatus } from '../types';
 
 interface SettingsViewProps {
   onOpenOnboarding?: () => void;
+  onOpenWhatsNew?: () => void;
 }
 
-export const SettingsView: React.FC<SettingsViewProps> = () => {
-  // App Version
+export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, onOpenWhatsNew }) => {
+  // App Version & Updater State
   const [versionInfo, setVersionInfo] = useState<{ version: string; app_name: string; build_date: string } | null>(null);
+  const [updaterInfo, setUpdaterInfo] = useState<{ version: string; isPackaged: boolean; isPortable: boolean } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string>('idle');
+  const [isUpdateReady, setIsUpdateReady] = useState(false);
 
   // LLM Status & State
   const [llmStatus, setLlmStatus] = useState<LLMStatus | null>(null);
@@ -120,11 +127,61 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
         const v = await AppBridge.api.getVersion();
         setVersionInfo(v);
       } catch (_) {}
+      try {
+        const u = await AppBridge.os.getUpdaterInfo();
+        setUpdaterInfo(u);
+      } catch (_) {}
       await loadStatus();
       await loadKeys();
     }
     init();
+
+    const unsub = AppBridge.os.onUpdateStatus((data) => {
+      if (data.status === 'checking') {
+        setCheckingUpdate(true);
+        setUpdateStatus('Checking for latest updates on GitHub...');
+      } else if (data.status === 'downloading') {
+        setCheckingUpdate(true);
+        setUpdateStatus(`Downloading update (${data.percent || 0}%)...`);
+      } else if (data.status === 'downloaded') {
+        setCheckingUpdate(false);
+        setIsUpdateReady(true);
+        setUpdateStatus(`Version v${data.version || ''} downloaded and ready to install.`);
+      } else if (data.status === 'available') {
+        setCheckingUpdate(false);
+        setUpdateStatus(`Update available: v${data.version}. ${data.isPortable ? 'Portable download available.' : 'Downloading package...'}`);
+      } else if (data.status === 'not-available') {
+        setCheckingUpdate(false);
+        setUpdateStatus('Agent-D is up to date.');
+      } else if (data.status === 'dev-mode') {
+        setCheckingUpdate(false);
+        setUpdateStatus('Development mode: updates disabled.');
+      } else if (data.status === 'error') {
+        setCheckingUpdate(false);
+        setUpdateStatus(`Update error: ${data.message || 'Check failed.'}`);
+      }
+    });
+
+    return () => {
+      if (typeof unsub === 'function') unsub();
+    };
   }, []);
+
+  const handleCheckForUpdates = () => {
+    setCheckingUpdate(true);
+    setUpdateStatus('Querying release feed...');
+    AppBridge.os.checkForUpdates();
+    setTimeout(() => {
+      setCheckingUpdate(false);
+    }, 4500);
+  };
+
+  const handleRestartToUpdate = () => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('dc_just_updated_restart', 'true');
+    }
+    AppBridge.os.restartAndInstallUpdate();
+  };
 
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -586,6 +643,86 @@ export const SettingsView: React.FC<SettingsViewProps> = () => {
                 <Bell className="w-3.5 h-3.5 text-[#2563EB]" />
                 <span>Test Notification</span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Desktop Updates & Workstation Maintenance */}
+        <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
+                <ArrowUpCircle className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Desktop Updates & Workstation Maintenance</h2>
+                <p className="text-xs text-slate-500">Auto-update channel, release changelog, and packaging diagnostics.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {onOpenWhatsNew && (
+                <button
+                  type="button"
+                  onClick={onOpenWhatsNew}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-[#F1F5F9] border border-[#E2E8F0] text-xs font-semibold text-slate-700 cursor-pointer shadow-2xs transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#2563EB]" />
+                  <span>What's New</span>
+                </button>
+              )}
+
+              {isUpdateReady ? (
+                <button
+                  type="button"
+                  onClick={handleRestartToUpdate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Restart & Install</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleCheckForUpdates}
+                  disabled={checkingUpdate}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                  <span>{checkingUpdate ? 'Checking...' : 'Check for Updates'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <span className="text-xs font-bold text-slate-900">Installed Workstation Build</span>
+              <div className="text-xs text-slate-600 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span>Version:</span>
+                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.1.0'}</span>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Production Release
+                  </span>
+                </div>
+                <div>Build Date: <span className="font-medium text-slate-800">{versionInfo?.build_date || 'October 2026'}</span></div>
+                <div>Package Type: <span className="font-medium text-slate-800">{updaterInfo?.isPortable ? 'Standalone Portable (.exe)' : 'NSIS Installer (Managed Shortcuts)'}</span></div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <span className="text-xs font-bold text-slate-900">Background Auto-Update Policy</span>
+              <div className="text-xs text-slate-600 space-y-1">
+                <div>Channel: <span className="font-medium text-slate-800">GitHub Releases (github.com/Pranshul-Chopra/Agent-D)</span></div>
+                <div>Schedule: <span className="font-medium text-slate-800">Initial check on launch + 60 min background poll</span></div>
+                <div>
+                  Status:{' '}
+                  <span className={`font-semibold ${isUpdateReady ? 'text-emerald-700' : 'text-slate-800'}`}>
+                    {updateStatus === 'idle' ? 'Auto-update service active' : updateStatus}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

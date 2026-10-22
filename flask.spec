@@ -1,9 +1,11 @@
 # flask.spec
-# Builds the Flask backend as a headless executable.
+# Builds the Agent-D Flask backend as a headless executable.
 # Output is packaged into dist/flask/ which electron-builder includes as extraResources.
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
+crypto_datas = collect_data_files('cryptography')
+crypto_hidden = collect_submodules('cryptography')
 docx_datas = collect_data_files('docx')
 docx_hidden = collect_submodules('docx')
 pypdf_datas = collect_data_files('pypdf')
@@ -16,25 +18,28 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('static',    'static'),
+        ('static', 'static'),
         ('version.json', '.'),
-    ] + docx_datas + pypdf_datas + openpyxl_datas,
+    ] + crypto_datas + docx_datas + pypdf_datas + openpyxl_datas,
     hiddenimports=[
         'plyer.platforms.win.notification',
         'sqlite3',
+        'config_db',
+        'context_db',
+        'crypto_utils',
+        'clinical_context',
+        'clinical_chat',
+        'clinical_tools',
+        'routes',
+        'db',
         'ai_db',
+        'requests',
         'data_engine',
         'notifier',
-        'rag',
-        'rag.parsers',
-        'rag.chunker',
-        'rag.engine',
         'tools',
-        'tools.document_generator',
-        'tools.summarizer',
         'llm',
         'llm.gateway',
-    ] + docx_hidden + pypdf_hidden + openpyxl_hidden,
+    ] + crypto_hidden + docx_hidden + pypdf_hidden + openpyxl_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -56,7 +61,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,    # headless — no console window
+    console=False,    # Headless background service (no console window)
 )
 
 coll = COLLECT(
@@ -66,5 +71,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='flask',     # output folder: dist/flask/
+    name='flask',     # Output folder: dist/flask/
 )

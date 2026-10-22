@@ -1029,7 +1029,7 @@ class BridgeService {
 
     restartAndInstallUpdate: () => {
       if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('pm_tool_just_updated_restart', 'true');
+        window.localStorage.setItem('dc_just_updated_restart', 'true');
       }
       if (window.electronUpdater) {
         window.electronUpdater.restartAndInstall();

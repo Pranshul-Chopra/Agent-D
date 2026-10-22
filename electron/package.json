@@ -50,7 +50,7 @@
     "publish": {
       "provider": "github",
       "owner": "Pranshul-Chopra",
-      "repo": "agent_d",
+      "repo": "Agent-D",
       "releaseType": "release"
     },
     "directories": {
@@ -90,13 +90,17 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "Agent-D",
-      "artifactName": "Agent-D-Setup-${version}.${ext}"
+      "artifactName": "Agent-D-Setup-${version}.${ext}",
+      "uninstallDisplayName": "Agent-D"
+    },
+    "portable": {
+      "artifactName": "Agent-D-Portable-${version}.${ext}"
     }
   }
 }

@@ -452,7 +452,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
                       }`}
                     >
                       {m.content ? (
-                        <div className="prose prose-xs max-w-none">
+                        <div className="w-full text-slate-900">
                           <MarkdownContent content={m.content} />
                         </div>
                       ) : (
