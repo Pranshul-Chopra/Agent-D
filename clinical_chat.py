@@ -1,22 +1,24 @@
-from datetime import date
 """
 clinical_chat.py — Conversational Copilot Streaming & Synthesis Engine for Agent-D.
 Handles:
 1. Session management & message persistence in context.db
-2. Real-time Gemini API SSE streaming with multi-key rotation and rate-limit backoff
-3. Offline/Local clinical context synthesis engine when no API key is configured
-4. Strict de-identification and doctor-in-control clinical formatting
+2. Single Egress Choke Point routing through cloud_egress.py
+3. Pre-send scrubbing of doctor messages, prior turns, and tool outputs
+4. Offline/Local clinical context synthesis engine when no API key is configured or on failover
+5. Strict de-identification and doctor-in-control clinical formatting
 """
 
 import json
 import time
 import re
+from datetime import date
 from typing import Generator, Dict, Any, Optional, List
 import requests
 
 import config_db
 import context_db
 import clinical_context
+import cloud_egress
 
 
 def resolve_or_create_session(
@@ -50,7 +52,8 @@ def _generate_local_clinical_response(
 ) -> str:
     """
     Intelligent local clinical copilot response engine.
-    Used when no Gemini API key is configured or during offline clinic operation.
+    Used when no Gemini API key is configured, during offline clinic operation,
+    or on cloud failover.
     Grounded directly in the live practice and active patient context envelope.
     """
     msg_lower = message.lower().strip()
@@ -187,16 +190,12 @@ def _generate_local_clinical_response(
         ])
         return "\n".join(lines)
 
-    # 5. Proposed Ticket Request ("make a ticket", "add a ticket", "create a ticket", "order lab", "order test", "follow up ticket", "propose ticket")
+    # 5. Proposed Ticket Request
     if any(k in msg_lower for k in ("make a ticket", "add a ticket", "create a ticket", "order lab", "order test", "follow up ticket", "propose ticket")):
         p_id = active_p.get("id") if active_p else None
         p_alias = active_p.get("alias") if active_p else "PT-XXXX"
-        title = "Order Lab / Clinical Follow-up"
-        if "hba1c" in msg_lower:
-            title = "Order 3-month HbA1c lab & follow-up"
-        elif "lipid" in msg_lower:
-            title = "Order fasting lipid panel"
-        elif "bp" in msg_lower or "blood pressure" in msg_lower:
+        title = message.replace("make a ticket", "").replace("add a ticket", "").replace("create a ticket", "").replace("propose ticket", "").strip()
+        if not title:
             title = "Hypertension BP check follow-up"
 
         prop_id = None
@@ -234,7 +233,7 @@ def _generate_local_clinical_response(
             "> Click **[Approve & Commit]** above to commit this action item to your Clinical Kanban Board."
         )
 
-    # 6. Proposed Consultation / Meeting Scheduling ("/consultation", "schedule consultation", "schedule meeting", "book appointment")
+    # 6. Proposed Consultation / Meeting Scheduling
     if any(k in msg_lower for k in ("consultation", "schedule consultation", "schedule meeting", "book appointment", "new appointment", "schedule visit")):
         p_id = active_p.get("id") if active_p else None
         p_alias = active_p.get("alias") if active_p else "PT-XXXX"
@@ -244,7 +243,6 @@ def _generate_local_clinical_response(
                 p_id = all_p[0]["id"]
                 p_alias = all_p[0]["llm_alias"]
 
-        # Default time: today or tomorrow at 10:00 AM
         from datetime import datetime, timedelta
         target_time = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%d %H:00")
         reason = "Follow-up clinical assessment"
@@ -290,7 +288,7 @@ def _generate_local_clinical_response(
             "> Click **[Approve & Schedule]** above to commit this consultation to your Consultations schedule."
         )
 
-    # 7. Proposed Dashboard Task / Agenda Item ("/dashboard", "dashboard task", "add task", "schedule task")
+    # 7. Proposed Dashboard Task / Agenda Item
     if any(k in msg_lower for k in ("dashboard task", "add task", "schedule task", "add to dashboard", "add to today")):
         clean_title = message.replace("/dashboard", "").replace("add task", "").replace("dashboard task", "").strip() or "Practice Review Item"
         prop_id = None
@@ -323,7 +321,7 @@ def _generate_local_clinical_response(
             "> Click **[Approve & Add]** above to commit this task to today's schedule."
         )
 
-    # 8. Proposed Artifact Update ("update medication", "add medication", "propose medication", "change dosage", "update artifact")
+    # 8. Proposed Artifact Update
     if active_p and any(k in msg_lower for k in ("propose medication", "add medication", "update medication", "prescribe", "change dose", "update artifact")):
         p_id = active_p.get("id")
         p_alias = active_p.get("alias")
@@ -395,10 +393,11 @@ def stream_clinical_chat(
 ) -> Generator[str, None, None]:
     """
     Core SSE streaming generator.
-    Yields data lines formatted as:
-    data: {"event": "start", "session_id": "..."}\n\n
-    data: {"event": "token", "token": "...", "session_id": "..."}\n\n
-    data: {"event": "done", "content": "...", "session_id": "..."}\n\n
+    Enforces Single Egress Choke Point via cloud_egress.py:
+    1. Pre-send scrubbing of user message & prior chat history
+    2. Strict schema payload validation
+    3. Canary & PHI leak pre-flight verification
+    4. Cloud streaming with fallback to Local Clinical Synthesis
     """
     clean_msg = message.strip()
     if not clean_msg:
@@ -420,29 +419,33 @@ def stream_clinical_chat(
     session_data = context_db.get_chat_session(s_id) or {}
     prior_messages = session_data.get("messages", [])
 
-    # 4. Build live clinical prompt
-    clinical_ctx = clinical_context.get_live_clinical_context(patient_id=patient_id)
-    system_prompt = clinical_context.get_clinical_system_prompt(patient_id=patient_id)
+    # 4. Build live prompt (Cloud boundary strictly enforced)
+    system_prompt = clinical_context.get_clinical_system_prompt(patient_id=patient_id, cloud_boundary=True)
 
-    # 5. Check for active Gemini API keys with multi-key rotation and 60s cooldown failover
-    full_response = ""
-    model_name = "gemini-2.0-flash"
-    success = False
-    tried_key_ids = set()
-
-    # Build contents array for Gemini REST API
+    # 5. Build contents array with pre-send scrubbing on user message & history
     contents = []
+    scrub_warnings = []
     for turn in prior_messages[:-1]:
         g_role = "user" if turn.get("role") == "user" else "model"
+        turn_text = turn.get("content", "")
+        scrubbed_t, red = cloud_egress.scrub_text(turn_text)
+        if red:
+            scrub_warnings.extend(red)
         contents.append({
             "role": g_role,
-            "parts": [{"text": turn.get("content", "")}]
+            "parts": [{"text": scrubbed_t}]
         })
+
+    # Scrub incoming user message
+    scrubbed_user_msg, user_red = cloud_egress.scrub_text(clean_msg)
+    if user_red:
+        scrub_warnings.extend(user_red)
     contents.append({
         "role": "user",
-        "parts": [{"text": clean_msg}]
+        "parts": [{"text": scrubbed_user_msg}]
     })
 
+    # Build validated egress payload conforming strictly to ALLOWED_ROOT_KEYS
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
@@ -451,6 +454,12 @@ def stream_clinical_chat(
             "maxOutputTokens": 4096,
         }
     }
+
+    # 6. Check for active Gemini API keys with multi-key rotation and 60s cooldown failover
+    full_response = ""
+    model_name = "gemini-2.0-flash"
+    success = False
+    tried_key_ids = set()
 
     candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-lite-latest"]
     saved_model = config_db.get_setting("active_model")
@@ -469,13 +478,12 @@ def stream_clinical_chat(
 
         key_succeeded = False
         for cand_model in candidate_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{cand_model}:streamGenerateContent?alt=sse&key={raw_key}"
             try:
-                res = requests.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"},
-                    stream=True,
+                # SINGLE EGRESS CHOKE POINT
+                res = cloud_egress.dispatch_cloud_streaming_request(
+                    model=cand_model,
+                    payload=payload,
+                    api_key=raw_key,
                     timeout=45.0,
                 )
 
@@ -517,6 +525,13 @@ def stream_clinical_chat(
                 else:
                     # Model not found or incompatible format; try next candidate model
                     continue
+            except cloud_egress.EgressSecurityError as ese:
+                # Blocked by Zero-PHI security gate
+                config_db.record_key_usage(key_id, success=False, error_msg=f"EgressSecurityError: {ese}")
+                full_response = f"> [!CAUTION]\n> **Cloud Egress Security Gate Blocked Request:** {ese}\n\n"
+                key_succeeded = False
+                success = False
+                break
             except Exception as e:
                 config_db.record_key_usage(key_id, success=False, error_msg=str(e))
                 break
@@ -525,7 +540,8 @@ def stream_clinical_chat(
             break
 
     if not success or not full_response:
-        # Fall back to local clinical synthesis engine
+        # Fall back to local clinical synthesis engine (uses full local context on-device)
+        local_clinical_ctx = clinical_context.get_live_clinical_context(patient_id=patient_id, cloud_boundary=False)
         pool_status = config_db.get_key_pool_status(provider="gemini")
         cooldown_prefix = ""
         if pool_status.get("all_in_cooldown"):
@@ -535,7 +551,7 @@ def stream_clinical_chat(
                 f"> **Multi-Key Gateway Cooldown:** All configured Gemini API keys are currently rate-limited (retry in ~{cd_secs}s). Responding via offline Local Clinical Synthesis.\n\n"
             )
 
-        local_resp = cooldown_prefix + _generate_local_clinical_response(clean_msg, clinical_ctx)
+        local_resp = cooldown_prefix + _generate_local_clinical_response(clean_msg, local_clinical_ctx)
         model_name = "local-clinical-synthesis"
         tokens = re.findall(r"\S+|\n+", local_resp)
         for tok in tokens:
@@ -543,7 +559,7 @@ def stream_clinical_chat(
             yield f"data: {json.dumps({'event': 'token', 'token': tok + ' ', 'session_id': s_id})}\n\n"
             time.sleep(0.012)
 
-    # 6. Save assistant turn in context.db
+    # 7. Save assistant turn in context.db
     context_db.add_chat_message(
         session_id=s_id,
         role="assistant",
@@ -551,7 +567,7 @@ def stream_clinical_chat(
         model_name=model_name,
     )
 
-    # 7. Yield done event
+    # 8. Yield done event
     yield f"data: {json.dumps({'event': 'done', 'session_id': s_id, 'content': full_response.strip(), 'model': model_name})}\n\n"
 
 
