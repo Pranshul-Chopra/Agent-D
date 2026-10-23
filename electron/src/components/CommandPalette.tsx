@@ -158,7 +158,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         id: 'nav-settings',
         category: 'Navigation',
         title: 'Settings & Security Vault',
-        subtitle: 'Multi-Key Gemini rotation, AES-256 storage, and system probes',
+        subtitle: 'On-device local Ollama configuration, AES-256 storage, and system probes',
         icon: Settings,
         shortcut: 'Ctrl+6',
         run: () => {
@@ -426,7 +426,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-blue-600 font-semibold">Agent-D</span>
-            <span>v0.4.0</span>
+            <span>v0.5.0</span>
           </div>
         </div>
       </div>

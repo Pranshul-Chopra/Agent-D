@@ -353,79 +353,36 @@ def get_egress_telemetry() -> List[Dict[str, Any]]:
     return list(EGRESS_AUDIT_LOGS)
 
 
-# ── Single Choke Point Dispatchers ───────────────────────────────────────────
+# ── Single Choke Point Dispatchers (AIR-GAP LOCKED) ──────────────────────────
 
 def dispatch_cloud_streaming_request(
     model: str,
     payload: Dict[str, Any],
-    api_key: str,
+    api_key: Optional[str] = None,
     timeout: float = 45.0,
     forbidden_terms: Optional[List[str]] = None,
 ) -> requests.Response:
     """
-    SINGLE CHOKE POINT for streaming cloud AI model calls.
-    1. Schema validation (rejects unauthorized fields)
-    2. Scrubbing (redacts user input, tool outputs, canary strings)
-    3. Pre-flight verification (blocks leak of forbidden terms)
-    4. HTTP dispatch
+    PERMANENTLY BLOCKED: Agent-D v0.5.0 operates strictly in 100% Air-Gapped Local Mode.
+    External cloud model dispatch is disabled to eliminate regulatory and privacy exposure.
     """
-    if not api_key:
-        raise EgressSecurityError("Cannot dispatch cloud request: Missing API Key")
-
-    # Step 1: Validate payload schema
-    validate_egress_payload(payload)
-
-    # Step 2: Scrub payload
-    clean_payload, redactions = scrub_payload(payload, forbidden_terms=forbidden_terms)
-
-    # Step 3: Verify Zero-PHI guarantees
-    verify_zero_phi(clean_payload, forbidden_terms=forbidden_terms)
-
-    # Step 4: Dispatch to Gemini REST API
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
-    try:
-        res = requests.post(
-            url,
-            json=clean_payload,
-            headers={"Content-Type": "application/json"},
-            stream=True,
-            timeout=timeout,
-        )
-        record_egress_telemetry(model, clean_payload, redactions, status=f"HTTP_{res.status_code}")
-        return res
-    except Exception as e:
-        record_egress_telemetry(model, clean_payload, redactions, status="error", error_msg=str(e))
-        raise
+    raise EgressSecurityError(
+        "Cloud egress is permanently disabled: Agent-D v0.5.0 operates strictly "
+        "in 100% Air-Gapped Local Ollama mode (127.0.0.1:11434)."
+    )
 
 
 def dispatch_cloud_request(
     model: str,
     payload: Dict[str, Any],
-    api_key: str,
+    api_key: Optional[str] = None,
     timeout: float = 45.0,
     forbidden_terms: Optional[List[str]] = None,
 ) -> requests.Response:
     """
-    SINGLE CHOKE POINT for synchronous cloud AI model calls.
+    PERMANENTLY BLOCKED: Agent-D v0.5.0 operates strictly in 100% Air-Gapped Local Mode.
     """
-    if not api_key:
-        raise EgressSecurityError("Cannot dispatch cloud request: Missing API Key")
-
-    validate_egress_payload(payload)
-    clean_payload, redactions = scrub_payload(payload, forbidden_terms=forbidden_terms)
-    verify_zero_phi(clean_payload, forbidden_terms=forbidden_terms)
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    try:
-        res = requests.post(
-            url,
-            json=clean_payload,
-            headers={"Content-Type": "application/json"},
-            stream=False,
-            timeout=timeout,
-        )
-        record_egress_telemetry(model, clean_payload, redactions, status=f"HTTP_{res.status_code}")
-        return res
-    except Exception as e:
-        record_egress_telemetry(model, clean_payload, redactions, status="error", error_msg=str(e))
-        raise
+    raise EgressSecurityError(
+        "Cloud egress is permanently disabled: Agent-D v0.5.0 operates strictly "
+        "in 100% Air-Gapped Local Ollama mode (127.0.0.1:11434)."
+    )

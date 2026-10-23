@@ -186,10 +186,16 @@ export const App: React.FC = () => {
       {/* Native Drag Titlebar */}
       <Titlebar
         activeTab={activeTab}
-        version={updateData.version || '0.4.0'}
+        version={updateData.version || '0.5.0'}
         onOpenPalette={() => setIsPaletteOpen(true)}
         onOpenWhatsNew={handleOpenWhatsNew}
       />
+
+      {/* Demo Banner (Active until formal clinic legal review is concluded) */}
+      <div className="app-no-drag w-full bg-amber-50 border-b border-amber-200 px-3.5 py-1 text-center text-xs font-semibold text-amber-800 flex items-center justify-center gap-2 select-none z-40">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
+        <span>Demo only: no real patient data — pending legal review</span>
+      </div>
 
       {/* Main Workstation Container */}
       <div className="flex-1 flex overflow-hidden min-h-0">

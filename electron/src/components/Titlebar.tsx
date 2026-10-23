@@ -21,7 +21,7 @@ const tabTitles: Record<NavTab, string> = {
 
 export const Titlebar: React.FC<TitlebarProps> = ({
   activeTab,
-  version = '0.4.0',
+  version = '0.5.0',
   onOpenPalette,
   onOpenWhatsNew,
 }) => {

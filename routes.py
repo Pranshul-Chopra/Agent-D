@@ -70,10 +70,10 @@ def _get_app_version() -> str:
         import json
         vf = _get_base_dir() / "version.json"
         if vf.exists():
-            return json.loads(vf.read_text(encoding="utf-8")).get("version", "0.4.0")
+            return json.loads(vf.read_text(encoding="utf-8")).get("version", "0.5.0")
     except Exception:
         pass
-    return "0.4.0"
+    return "0.5.0"
 
 
 @bp.route("/api/status")
@@ -322,54 +322,49 @@ def api_v1_delete_patient_log(entry_id):
 
 
 
-# ── Multi-Key Gemini API Key Management (v1) ─────────────────────────────────
+# ── Legacy Keys & Local Provider Status ───────────────────────────────────────
 
 @bp.route("/api/v1/keys", methods=["GET"])
 def api_v1_list_keys():
-    """List configured Gemini API keys with usage stats, masked keys, and cooldown status."""
-    keys = config_db.list_api_keys(include_raw=False)
-    return jsonify({"keys": keys})
+    """Agent-D operates strictly in 100% Local Sovereign Mode (Zero Cloud Keys)."""
+    return jsonify({"keys": [], "is_local_only": True, "provider": "ollama"})
 
 
 @bp.route("/api/v1/keys", methods=["POST"])
 def api_v1_add_key():
-    """Store and encrypt a new Gemini API key."""
-    data = request.get_json(force=True) or {}
-    key_label = (data.get("key_label") or "Gemini Key").strip()
-    raw_key = (data.get("api_key") or "").strip()
-    priority = int(data.get("priority", 1))
-    if not raw_key:
-        return jsonify({"error": "API key is required"}), 400
-    try:
-        new_key = config_db.add_api_key(key_label=key_label, raw_key=raw_key, priority=priority)
-        return jsonify({"key": new_key}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    """Cloud API keys are disabled in Agent-D v0.5.0 Local-First Architecture."""
+    return jsonify({
+        "error": "Cloud API keys are permanently disabled. Agent-D v0.5.0 operates strictly in 100% On-Device Local Mode (Ollama 127.0.0.1:11434)."
+    }), 400
 
 
 @bp.route("/api/v1/keys/<key_id>", methods=["DELETE"])
 def api_v1_delete_key(key_id):
-    """Remove a configured Gemini API key."""
-    success = config_db.delete_api_key(key_id)
-    if not success:
-        return jsonify({"error": "Key not found"}), 404
+    """Cloud keys removed."""
     return jsonify({"success": True})
 
 
 @bp.route("/api/v1/keys/status", methods=["GET"])
 def api_v1_keys_status():
-    """Retrieve key pool health, active count, cooldown status, and retry countdown."""
-    provider = request.args.get("provider", "gemini")
-    status = config_db.get_key_pool_status(provider=provider)
-    return jsonify(status)
+    """Retrieve local AI engine status."""
+    import llm_provider
+    p_status = llm_provider.get_provider_status()
+    return jsonify({
+        "provider": "ollama",
+        "total_keys": 0,
+        "healthy_keys": 0,
+        "cooldown_keys": 0,
+        "all_in_cooldown": False,
+        "retry_countdown_seconds": 0,
+        "keys": [],
+        "is_local_only": True,
+        "ollama": p_status,
+    })
 
 
 @bp.route("/api/v1/keys/<key_id>/reset-cooldown", methods=["POST"])
 def api_v1_reset_key_cooldown(key_id):
-    """Manually clear rate-limit cooldown status on an API key."""
-    ok = config_db.reset_key_cooldown(key_id)
-    if not ok:
-        return jsonify({"error": "Key not found or could not reset"}), 404
+    """No cooldown in local mode."""
     return jsonify({"success": True, "key_id": key_id})
 
 
@@ -1056,97 +1051,79 @@ def task_detail(task_id: str):
 @bp.route("/api/llm/status", methods=["GET"])
 def api_llm_status():
     """
-    Return full LLM provider status:
-    - active_provider (ollama | api | none)
-    - active_model
-    - ollama { available, models, selected_model, warning }
-    - api_configured, api_key_display, api_base
-    - setup_required
+    Return Sovereign Local LLM status:
+    - active_provider ("ollama" or "offline_synthesis")
+    - is_local_only (True)
+    - zero_cloud_egress (True)
+    - ollama { available, models, selected_model, host, warning }
     """
-    return jsonify(llm_gateway.get_llm_status(db))
+    import llm_provider
+    import config_db
+    p_status = llm_provider.get_provider_status()
+    saved_model = config_db.get_setting("ollama_model")
+    if saved_model:
+        p_status["selected_model"] = saved_model
+    return jsonify(p_status)
 
 
 @bp.route("/api/llm/config", methods=["POST"])
 def api_llm_save_config():
-    """
-    Save LLM provider preferences. API keys are encrypted before storage.
-
-    Body (JSON):
-      provider    string  — "ollama" | "api" | "auto"
-      api_key     string  — plain-text API key (encrypted on save)
-      api_base    string  — optional custom base URL for OpenAI-compatible endpoints
-      model_name  string  — model identifier override
-    """
+    """Save local LLM preferences (model selection)."""
+    import config_db
+    import llm_provider
     data = request.get_json(silent=True) or {}
-    provider   = data.get("provider")
-    api_key    = data.get("api_key")
-    api_base   = data.get("api_base")
     model_name = data.get("model_name") or data.get("model")
-    chat_max_tokens = data.get("chat_max_tokens")
-    file_gen_max_tokens = data.get("file_gen_max_tokens")
-    plan_max_tokens = data.get("plan_max_tokens")
-    tool_call_max_tokens = data.get("tool_call_max_tokens")
+    if model_name:
+        config_db.set_setting("ollama_model", model_name.strip())
 
-    if not provider and not any([chat_max_tokens, file_gen_max_tokens, plan_max_tokens, tool_call_max_tokens]):
-        return jsonify({"error": "provider or token limits are required"}), 400
-
-    updated = llm_gateway.save_llm_config(
-        db_module=db,
-        provider=provider,
-        api_key=api_key,
-        api_base=api_base,
-        model_name=model_name,
-        chat_max_tokens=chat_max_tokens,
-        file_gen_max_tokens=file_gen_max_tokens,
-        plan_max_tokens=plan_max_tokens,
-        tool_call_max_tokens=tool_call_max_tokens,
-    )
-    return jsonify(updated)
+    p_status = llm_provider.get_provider_status()
+    if model_name:
+        p_status["selected_model"] = model_name.strip()
+    return jsonify(p_status)
 
 
 @bp.route("/api/llm/ollama/probe", methods=["GET"])
 def api_llm_ollama_probe():
-    """
-    Live probe of the local Ollama server.
-    Returns available models and selected default.
-    Safe to call repeatedly from the UI settings panel.
-    """
-    result = llm_gateway.detect_ollama(timeout=2.0)
-    return jsonify(result)
+    """Live probe of the local Ollama loopback server (127.0.0.1:11434)."""
+    import llm_provider
+    import config_db
+    provider = llm_provider.OllamaProvider()
+    available = provider.is_available()
+    models = provider.get_available_models() if available else []
+    saved_model = config_db.get_setting("ollama_model")
+    selected = saved_model if (saved_model in models) else provider.select_default_model()
+
+    return jsonify({
+        "available": available,
+        "models": models,
+        "selected_model": selected,
+        "host": "http://127.0.0.1:11434",
+        "warning": None if available else "Ollama is not running on 127.0.0.1:11434.",
+    })
 
 
 @bp.route("/api/llm/ollama/models", methods=["GET"])
 def api_llm_ollama_models():
-    """Return just the list of installed Ollama model names."""
-    result = llm_gateway.detect_ollama(timeout=2.0)
+    """Return installed local Ollama model names."""
+    import llm_provider
+    provider = llm_provider.OllamaProvider()
+    available = provider.is_available()
+    models = provider.get_available_models() if available else []
     return jsonify({
-        "available": result["available"],
-        "models": result["models"],
-        "warning": result.get("warning"),
+        "available": available,
+        "models": models,
+        "warning": None if available else "Ollama is not running on 127.0.0.1:11434.",
     })
 
 
 @bp.route("/api/llm/gemini/models", methods=["POST"])
 def api_llm_gemini_models():
-    """
-    Discover available Gemini models for a given API key.
-    Body: { "api_key": "AIzaSy..." }
-    Returns sorted model list (Flash-Lite → Flash → Pro priority).
-    """
-    data = request.get_json(silent=True) or {}
-    api_key = (data.get("api_key") or "").strip()
-
-    # Fall back to stored encrypted key if none provided
-    if not api_key:
-        raw = db.get_ai_config("api_key")
-        if raw:
-            api_key = llm_gateway.decrypt_secret(raw)
-
-    if not api_key:
-        return jsonify({"error": "api_key is required"}), 400
-
-    models = llm_gateway.get_available_gemini_models(api_key)
-    return jsonify({"models": models, "count": len(models)})
+    """Permanently disabled in Agent-D Local-Only Architecture."""
+    return jsonify({
+        "models": [],
+        "count": 0,
+        "error": "Cloud models are disabled. Agent-D v0.5.0 operates in 100% Local Sovereign Mode (Ollama 127.0.0.1:11434).",
+    })
 
 
 @bp.route("/api/llm/custom/probe", methods=["POST"])

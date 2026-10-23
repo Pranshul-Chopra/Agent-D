@@ -59,12 +59,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const [seedBacklog, setSeedBacklog] = useState(true);
 
   // Step 2: AI Gateway Configuration
-  const [provider, setProvider] = useState<'ollama' | 'gemini' | 'openai' | 'offline'>('ollama');
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-1.5-flash');
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState('http://localhost:1234/v1');
-  const [openaiModel, setOpenaiModel] = useState('llama-3.2-3b-instruct');
-  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [provider, setProvider] = useState<'ollama' | 'offline'>('ollama');
 
   // Ollama Probe State
   const [probingOllama, setProbingOllama] = useState(false);
@@ -178,19 +173,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
         await AppBridge.api.saveLLMConfig({
           provider: 'ollama',
           model_name: selectedOllamaModel || undefined,
-        });
-      } else if (provider === 'gemini' && geminiApiKey.trim()) {
-        await AppBridge.api.saveLLMConfig({
-          provider: 'api',
-          api_key: geminiApiKey.trim(),
-          model_name: geminiModel,
-        });
-      } else if (provider === 'openai' && (openaiBaseUrl.trim() || openaiApiKey.trim())) {
-        await AppBridge.api.saveLLMConfig({
-          provider: 'api',
-          api_base: openaiBaseUrl.trim(),
-          api_key: openaiApiKey.trim() || undefined,
-          model_name: openaiModel.trim(),
         });
       }
 
@@ -396,7 +378,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   Configure your AI Copilot Engine
                 </h3>
                 <p className="text-xs text-[#9b9690] mt-0.5">
-                  PM Tool supports 100% offline local LLMs via Ollama, cloud providers, or complete offline operation.
+                  Agent-D operates strictly in 100% on-device mode via local Ollama or embedded rule-based clinical synthesis. Zero patient data ever leaves your computer.
                 </p>
               </div>
 
@@ -417,61 +399,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <span className="font-semibold text-xs text-[#edeae4]">Local Ollama</span>
                     </div>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                      100% Private
+                      100% On-Device
                     </span>
                   </div>
                   <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Runs locally on your device via Ollama at <code className="text-[#e8a84c]">localhost:11434</code>. Zero data leaves your machine.
+                    Runs locally on your device via Ollama at <code className="text-[#e8a84c]">127.0.0.1:11434</code>. Zero data leaves your machine.
                   </p>
                 </div>
 
-                {/* Google Gemini Card */}
-                <div
-                  onClick={() => setProvider('gemini')}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    provider === 'gemini'
-                      ? 'bg-[#1c1c1b] border-[#e8a84c] shadow-[0_0_15px_rgba(232,168,76,0.1)]'
-                      : 'bg-[#111110] border-[#2e2c2a] hover:border-[#3e3c38]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-[#38bdf8]" />
-                      <span className="font-semibold text-xs text-[#edeae4]">Google Gemini</span>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">
-                      High Speed
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Enterprise cloud reasoning with 1M+ token context windows for deep PRD synthesis.
-                  </p>
-                </div>
-
-                {/* Custom / OpenAI Compatible Card */}
-                <div
-                  onClick={() => setProvider('openai')}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    provider === 'openai'
-                      ? 'bg-[#1c1c1b] border-[#e8a84c] shadow-[0_0_15px_rgba(232,168,76,0.1)]'
-                      : 'bg-[#111110] border-[#2e2c2a] hover:border-[#3e3c38]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Bot className="w-4 h-4 text-[#b388ff]" />
-                      <span className="font-semibold text-xs text-[#edeae4]">Custom / LM Studio</span>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30">
-                      OpenAI API
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Connect local LM Studio, LocalAI, vLLM, or OpenRouter custom endpoints.
-                  </p>
-                </div>
-
-                {/* Offline / Skip for Now Card */}
+                {/* Offline / Embedded Rule-Based Synthesis Card */}
                 <div
                   onClick={() => setProvider('offline')}
                   className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
@@ -483,14 +419,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-[#a1a1aa]" />
-                      <span className="font-semibold text-xs text-[#edeae4]">Set Up Later / Offline</span>
+                      <span className="font-semibold text-xs text-[#edeae4]">Embedded Synthesis</span>
                     </div>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/30">
-                      Standard
+                      Air-Gapped
                     </span>
                   </div>
                   <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Use PM Tool purely as a local agile workstation. Configure AI anytime from Settings.
+                    Embedded rule-based practice synthesis. Works immediately without downloading external models.
                   </p>
                 </div>
               </div>
@@ -501,7 +437,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-mono text-[#edeae4] font-semibold">
-                        Ollama Daemon Status:
+                        Local Ollama Status:
                       </span>
                       <button
                         onClick={probeLocalOllama}
@@ -521,7 +457,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs flex items-center justify-between">
                         <div className="flex items-center gap-2 text-emerald-400">
                           <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                          <span>Ollama detected with {ollamaStatus.models.length} model(s) installed.</span>
+                          <span>Ollama detected on loopback with {ollamaStatus.models.length} model(s).</span>
                         </div>
                         {ollamaStatus.models.length > 0 && (
                           <select
@@ -539,66 +475,15 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       </div>
                     ) : (
                       <div className="p-2.5 rounded-lg bg-[#1c1c1b] border border-[#2e2c2a] text-xs text-[#9b9690] leading-relaxed">
-                        Ollama was not detected at <code className="text-[#e8a84c]">http://localhost:11434</code>. Run <code className="text-[#edeae4] bg-[#222120] px-1 rounded">ollama serve</code> in your terminal if you wish to use local models, or choose another provider above.
+                        Ollama not currently detected on <code className="text-[#e8a84c]">127.0.0.1:11434</code>. Run <code className="text-[#edeae4] bg-[#222120] px-1 rounded">ollama run llama3.2</code> in your terminal if you wish to use local models, or choose Embedded Synthesis.
                       </div>
                     )}
                   </div>
                 )}
 
-                {provider === 'gemini' && (
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs font-mono">
-                        <span className="text-[#9b9690]">Google AI Studio API Key</span>
-                        <a
-                          href="https://aistudio.google.com/app/apikey"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[#38bdf8] hover:underline flex items-center gap-1 text-[10px]"
-                        >
-                          <span>Get Free Key</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      </div>
-                      <input
-                        type="password"
-                        value={geminiApiKey}
-                        onChange={(e) => setGeminiApiKey(e.target.value)}
-                        placeholder="AIzaSy..."
-                        className="w-full px-3 py-1.5 rounded-lg bg-[#161514] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] focus:outline-none focus:border-[#e8a84c]"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {provider === 'openai' && (
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-mono text-[#9b9690]">Base URL</label>
-                      <input
-                        type="text"
-                        value={openaiBaseUrl}
-                        onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-                        placeholder="http://localhost:1234/v1"
-                        className="w-full px-3 py-1.5 rounded-lg bg-[#161514] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] focus:outline-none focus:border-[#e8a84c]"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-mono text-[#9b9690]">Model ID</label>
-                      <input
-                        type="text"
-                        value={openaiModel}
-                        onChange={(e) => setOpenaiModel(e.target.value)}
-                        placeholder="e.g. llama-3.2-3b-instruct"
-                        className="w-full px-3 py-1.5 rounded-lg bg-[#161514] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] focus:outline-none focus:border-[#e8a84c]"
-                      />
-                    </div>
-                  </div>
-                )}
-
                 {provider === 'offline' && (
-                  <div className="text-xs text-[#716d67] leading-relaxed">
-                    PM Tool will operate in offline mode without automated LLM completions. You can use full Kanban, Data Studio SQL queries, and Living Documents.
+                  <div className="p-2.5 rounded-lg bg-[#1c1c1b] border border-[#2e2c2a] text-xs text-[#9b9690] leading-relaxed">
+                    Embedded Clinical Synthesis is active. All consultation briefings, dashboard reviews, and follow-ups run locally without any external model downloads.
                   </div>
                 )}
               </div>

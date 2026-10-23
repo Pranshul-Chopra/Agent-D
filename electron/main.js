@@ -137,14 +137,8 @@ function setupAutoUpdater() {
     });
   });
 
-  // Check 3 seconds after launch, then periodically every 60 minutes
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
-  }, 3000);
-
-  setInterval(() => {
-    autoUpdater.checkForUpdates().catch(() => {});
-  }, 60 * 60 * 1000);
+  // In local-first air-gapped architecture, disable silent background interval polling.
+  // Updates are strictly manual when requested by the physician in Settings.
 }
 
 // ── Port Handshake Utilities ──────────────────────────────────────────────────

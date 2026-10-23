@@ -706,8 +706,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>De-Identified & Encrypted</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+              <span>Local AI (100% Air-Gapped)</span>
             </div>
           </div>
         </div>
@@ -716,17 +716,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="bg-[#F8FAFC] border-b border-[#E2E8F0] px-6 py-1.5 flex items-center justify-between text-[11px] text-slate-500">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold text-slate-800">Agent-D Clinical Intelligence</span>
+            <span className="font-semibold text-slate-800">Agent-D Sovereign Local Intelligence</span>
             <span>•</span>
             <span className="text-slate-600">
-              Hosted locally on <code className="font-mono text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">http://127.0.0.1:5050</code>
+              Hosted on loopback <code className="font-mono text-blue-700 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">http://127.0.0.1:5050</code>
             </span>
             <span>•</span>
-            <span className="text-slate-600">Private AES-256 Vault</span>
+            <span className="text-slate-600">AES-256 Vault</span>
           </div>
           <div className="flex items-center gap-1.5 text-emerald-700 font-medium">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>100% Private Offline Loopback • Zero Cloud PII</span>
+            <span>100% Sovereign Local AI • Zero Network Egress</span>
           </div>
         </div>
 

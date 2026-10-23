@@ -262,64 +262,22 @@ class TestCanaryEgress(unittest.TestCase):
 
     # ── Test 6: Single Choke Point Dispatch Integration ──────────────────────
 
-    @patch("cloud_egress.requests.post")
-    def test_10_single_choke_point_dispatches_clean_payload_only(self, mock_post):
+    def test_10_single_choke_point_permanently_blocks_cloud_egress(self):
         """
-        When dispatching through cloud_egress, the exact HTTP payload received
-        by the network client must have zero canaries and conform strictly to schema.
+        In Agent-D v0.5.0 local-only architecture, any invocation of cloud egress
+        is permanently blocked with EgressSecurityError.
         """
-        # Set up mock response
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.iter_lines.return_value = [
-            b'data: {"candidates": [{"content": {"parts": [{"text": "Understood. Practice schedule is ready."}]}}]}'
-        ]
-        mock_post.return_value = mock_resp
-
-        # Payload containing doctor input with canaries
         raw_payload = {
-            "system_instruction": {"parts": [{"text": "You are Agent-D assistant."}]},
             "contents": [
-                {
-                    "role": "user",
-                    "parts": [{
-                        "text": f"Book consultation for {CANARY_PATIENT_NAME} ({CANARY_PHONE}) taking {CANARY_DRUG}."
-                    }],
-                }
-            ],
-            "generationConfig": {"temperature": 0.2},
+                {"role": "user", "parts": [{"text": "Hello"}]}
+            ]
         }
-
-        res = cloud_egress.dispatch_cloud_streaming_request(
-            model="gemini-2.0-flash",
-            payload=raw_payload,
-            api_key="AIzaSyTestCanaryKey12345678901234567890",
-        )
-
-        self.assertEqual(res.status_code, 200)
-        self.assertTrue(mock_post.called)
-
-        # Inspect the ACTUAL payload passed to requests.post
-        call_kwargs = mock_post.call_args[1]
-        dispatched_payload = call_kwargs["json"]
-        dispatched_json = json.dumps(dispatched_payload)
-
-        # ZERO CANARY ASSERTION
-        self.assertNotIn(CANARY_PATIENT_NAME, dispatched_json)
-        self.assertNotIn(CANARY_DRUG, dispatched_json)
-        self.assertNotIn(CANARY_PHONE, dispatched_json)
-        self.assertNotIn(CANARY_EMAIL, dispatched_json)
-        self.assertNotIn(CANARY_DIAGNOSIS, dispatched_json)
-
-        # Verify alias is present instead of legal name
-        self.assertIn(self.patient_alias, dispatched_json)
-
-        # Verify telemetry was recorded
-        telemetry = cloud_egress.get_egress_telemetry()
-        self.assertGreaterEqual(len(telemetry), 1)
-        latest = telemetry[-1]
-        self.assertEqual(latest["model"], "gemini-2.0-flash")
-        self.assertGreaterEqual(latest["redactions_count"], 3)
+        with self.assertRaises(cloud_egress.EgressSecurityError) as ctx:
+            cloud_egress.dispatch_cloud_streaming_request(
+                model="gemini-2.0-flash",
+                payload=raw_payload,
+            )
+        self.assertIn("Cloud egress is permanently disabled", str(ctx.exception))
 
 
 if __name__ == "__main__":

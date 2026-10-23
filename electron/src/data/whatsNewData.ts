@@ -25,10 +25,75 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '0.5.0',
+    codename: 'Sovereign Air-Gapped AI',
+    date: 'October 2026',
+    isLatest: true,
+    title: '100% On-Device Local AI via Hardened Ollama, Zero Network Egress & Demo Governance',
+    summary:
+      'Agent-D v0.5.0 transitions to a 100% On-Device Local-First Architecture. All external cloud model paths (Gemini) and key vaults have been removed to eliminate legal and regulatory exposure under the IT Act and DPDP Act. Powered by local Ollama on loopback socket (127.0.0.1:11434) with embedded air-gapped clinical synthesis.',
+    highlights: [
+      {
+        id: 'ollama-sovereignty',
+        icon: 'zap',
+        title: '100% Sovereign Local AI via Ollama',
+        tag: 'Inference',
+        description:
+          'Inference runs entirely on local GPU/CPU hardware via loopback socket (127.0.0.1:11434). Zero patient records, notes, or prompts ever leave this computer.',
+      },
+      {
+        id: 'zero-cloud-egress',
+        icon: 'shield',
+        title: 'Permanent Cloud Egress Block',
+        tag: 'Privacy',
+        description:
+          'Eliminated all external cloud model clients, remote API key vaults, and multi-key rotation pools, removing third-party data processor and cross-border transfer liabilities.',
+      },
+      {
+        id: 'graceful-fallback',
+        icon: 'bot',
+        title: 'Embedded Air-Gapped Rule Synthesis',
+        tag: 'Resilience',
+        description:
+          'If the local Ollama service is stopped or a model is not yet pulled, Copilot fails gracefully into on-device embedded clinical synthesis without missing a beat.',
+      },
+      {
+        id: 'demo-governance',
+        icon: 'sparkles',
+        title: 'Pre-Deployment Demo Governance Banner',
+        tag: 'Compliance',
+        description:
+          'Prominent persistent banner warns that the workstation is running in demo-only mode until formal clinic legal review is concluded.',
+      },
+    ],
+    sections: [
+      {
+        title: 'Local Sovereignty & Architecture',
+        type: 'feature',
+        items: [
+          'Created pluggable BaseLLMProvider interface with hardened OllamaProvider bound strictly to 127.0.0.1:11434.',
+          'Eliminated all Gemini cloud REST calls, API key rotation tables, and cooldown tracking.',
+          'Replaced Settings AI Guide with 3-step local Ollama setup and model selection.',
+          'Maintained prompt allowlist and PII scrubbing patterns as strict coding habits.',
+        ],
+      },
+      {
+        title: 'Legal & Regulatory De-Risking',
+        type: 'improvement',
+        items: [
+          'Eliminated cross-border data transfer exposure under IT Act Section 43A and DPDP Act Section 16.',
+          'Eliminated free-tier vs paid-tier Google terms-of-service compliance risks and cloud abuse logging.',
+          'Persistent demo banner: "Demo only: no real patient data — pending legal review".',
+          'Disabled background periodic updater polls in Electron to maintain a strict air-gap.',
+        ],
+      },
+    ],
+  },
+  {
     version: '0.4.0',
     codename: 'Context Sync & Pipeline Hardening',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'In-View Patient Scoping, Dynamic Context Sync & CI/CD Hardening',
     summary:
       'Agent-D v0.4.0 shifts patient selection directly into Copilot and Artifacts Studio, enables live dynamic context synchronization across modules, and resolves CI/CD release build timeouts with optimized PyInstaller freezing.',
