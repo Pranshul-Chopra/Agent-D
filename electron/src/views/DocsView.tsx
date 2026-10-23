@@ -707,7 +707,7 @@ export const DocsView: React.FC<DocsViewProps> = ({
                 <span className="text-[11px] text-slate-500">• Context Artifact v{artifact?.current_version || 1}</span>
               </div>
               <p className="text-[11px] text-slate-500">
-                Doctor-curated source of truth. Only de-identified summaries are sent to the AI Copilot.
+                Doctor-curated source of truth. Stored with hardware-bound AES-256-GCM encryption in your local vault.
               </p>
             </div>
           </div>
@@ -867,7 +867,7 @@ export const DocsView: React.FC<DocsViewProps> = ({
                     <span>Clinical Profile Summary</span>
                   </div>
                   <span className="text-[10px] font-mono uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
-                    Primary Copilot Ingestion
+                    Physician Care Plan
                   </span>
                 </div>
                 <textarea
@@ -1660,7 +1660,7 @@ export const DocsView: React.FC<DocsViewProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] font-semibold text-[#1D4ED8] bg-[#EFF6FF] px-1.5 py-0.5 rounded border border-[#BFDBFE]">
-                        {ver.author_type === 'doctor_manual' ? 'Doctor' : 'Copilot Approved'}
+                        {ver.author_type === 'doctor_manual' ? 'Doctor' : 'Approved Update'}
                       </span>
                     </div>
 

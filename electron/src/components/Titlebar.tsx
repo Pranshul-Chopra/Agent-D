@@ -9,8 +9,7 @@ interface TitlebarProps {
   onOpenWhatsNew?: () => void;
 }
 
-const tabTitles: Record<NavTab, string> = {
-  chat: 'Conversational Copilot',
+const tabTitles: Record<string, string> = {
   home: 'Clinical Dashboard',
   patients: 'Patients Manager',
   consultations: 'Active Consultations & Encounters',

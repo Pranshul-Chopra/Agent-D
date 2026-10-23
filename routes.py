@@ -1,14 +1,11 @@
 # ── routes.py ─────────────────────────────────────────────────────────────────
 # Flask routes and REST API for PM Tool.
 
-from flask import Blueprint, render_template, request, jsonify, send_file, send_from_directory, Response, stream_with_context
+from flask import Blueprint, render_template, request, jsonify, send_file, send_from_directory, Response
 import db
-import ai_db
 import config_db
 import context_db
 import clinical_context
-import clinical_chat
-from llm import gateway as llm_gateway
 import system_context as workspace_context
 
 import os
@@ -322,49 +319,37 @@ def api_v1_delete_patient_log(entry_id):
 
 
 
-# ── Legacy Keys & Local Provider Status ───────────────────────────────────────
+# ── Legacy Keys & Status (AI Disabled) ────────────────────────────────────────
 
 @bp.route("/api/v1/keys", methods=["GET"])
 def api_v1_list_keys():
-    """Agent-D operates strictly in 100% Local Sovereign Mode (Zero Cloud Keys)."""
-    return jsonify({"keys": [], "is_local_only": True, "provider": "ollama"})
+    return jsonify({"keys": [], "is_ai_disabled": True})
 
 
 @bp.route("/api/v1/keys", methods=["POST"])
 def api_v1_add_key():
-    """Cloud API keys are disabled in Agent-D v0.5.0 Local-First Architecture."""
     return jsonify({
-        "error": "Cloud API keys are permanently disabled. Agent-D v0.5.0 operates strictly in 100% On-Device Local Mode (Ollama 127.0.0.1:11434)."
+        "error": "AI functionality is completely disabled."
     }), 400
 
 
 @bp.route("/api/v1/keys/<key_id>", methods=["DELETE"])
 def api_v1_delete_key(key_id):
-    """Cloud keys removed."""
     return jsonify({"success": True})
 
 
 @bp.route("/api/v1/keys/status", methods=["GET"])
 def api_v1_keys_status():
-    """Retrieve local AI engine status."""
-    import llm_provider
-    p_status = llm_provider.get_provider_status()
     return jsonify({
-        "provider": "ollama",
+        "provider": "none",
         "total_keys": 0,
-        "healthy_keys": 0,
-        "cooldown_keys": 0,
-        "all_in_cooldown": False,
-        "retry_countdown_seconds": 0,
+        "is_ai_disabled": True,
         "keys": [],
-        "is_local_only": True,
-        "ollama": p_status,
     })
 
 
 @bp.route("/api/v1/keys/<key_id>/reset-cooldown", methods=["POST"])
 def api_v1_reset_key_cooldown(key_id):
-    """No cooldown in local mode."""
     return jsonify({"success": True, "key_id": key_id})
 
 
@@ -775,17 +760,6 @@ def api_execute_action():
             reason=reason,
         )
 
-        try:
-            ai_db.record_applied_action(
-                action_key=action_key,
-                conversation_id=conv_id or "global",
-                action_name=action_name,
-                title=reason,
-                entity_id=appt.get("id"),
-            )
-        except Exception:
-            pass
-
         return jsonify({
             "success": True,
             "action": action_name,
@@ -954,17 +928,6 @@ def api_execute_action():
         except Exception:
             pass
 
-        try:
-            ai_db.record_applied_action(
-                action_key=action_key,
-                conversation_id=conv_id or "global",
-                action_name=action_name,
-                title=title,
-                entity_id=clin_ticket.get("id"),
-            )
-        except Exception:
-            pass
-
         return jsonify({
             "success": True,
             "action": action_name,
@@ -1008,11 +971,9 @@ def api_execute_action():
 @bp.route("/api/tools/applied_actions", methods=["GET"])
 def api_applied_actions():
     """Retrieve all applied interactive actions for persistent state across views."""
-    conv_id = request.args.get("conversation_id")
-    actions = ai_db.get_applied_actions(conv_id)
     return jsonify({
-        "applied_actions": actions,
-        "applied_action_keys": [a["action_key"] for a in actions],
+        "applied_actions": [],
+        "applied_action_keys": [],
     })
 
 
@@ -1046,136 +1007,40 @@ def task_detail(task_id: str):
         return jsonify({"error": "Task not found"}), 404
 
 
-# ── LLM / AI Provider Settings ────────────────────────────────────────────────
+# ── LLM / AI Endpoints (Completely Disabled in Agent-D) ──────────────────────
 
 @bp.route("/api/llm/status", methods=["GET"])
 def api_llm_status():
-    """
-    Return Sovereign Local LLM status:
-    - active_provider ("ollama" or "offline_synthesis")
-    - is_local_only (True)
-    - zero_cloud_egress (True)
-    - ollama { available, models, selected_model, host, warning }
-    """
-    import llm_provider
-    import config_db
-    p_status = llm_provider.get_provider_status()
-    saved_model = config_db.get_setting("ollama_model")
-    if saved_model:
-        p_status["selected_model"] = saved_model
-    return jsonify(p_status)
+    return jsonify({
+        "active_provider": "none",
+        "is_ai_disabled": True,
+        "message": "AI functionality is completely disabled."
+    })
 
 
 @bp.route("/api/llm/config", methods=["POST"])
 def api_llm_save_config():
-    """Save local LLM preferences (model selection)."""
-    import config_db
-    import llm_provider
-    data = request.get_json(silent=True) or {}
-    model_name = data.get("model_name") or data.get("model")
-    if model_name:
-        config_db.set_setting("ollama_model", model_name.strip())
-
-    p_status = llm_provider.get_provider_status()
-    if model_name:
-        p_status["selected_model"] = model_name.strip()
-    return jsonify(p_status)
+    return jsonify({"success": True, "is_ai_disabled": True})
 
 
 @bp.route("/api/llm/ollama/probe", methods=["GET"])
 def api_llm_ollama_probe():
-    """Live probe of the local Ollama loopback server (127.0.0.1:11434)."""
-    import llm_provider
-    import config_db
-    provider = llm_provider.OllamaProvider()
-    available = provider.is_available()
-    models = provider.get_available_models() if available else []
-    saved_model = config_db.get_setting("ollama_model")
-    selected = saved_model if (saved_model in models) else provider.select_default_model()
-
-    return jsonify({
-        "available": available,
-        "models": models,
-        "selected_model": selected,
-        "host": "http://127.0.0.1:11434",
-        "warning": None if available else "Ollama is not running on 127.0.0.1:11434.",
-    })
+    return jsonify({"available": False, "models": [], "is_ai_disabled": True})
 
 
 @bp.route("/api/llm/ollama/models", methods=["GET"])
 def api_llm_ollama_models():
-    """Return installed local Ollama model names."""
-    import llm_provider
-    provider = llm_provider.OllamaProvider()
-    available = provider.is_available()
-    models = provider.get_available_models() if available else []
-    return jsonify({
-        "available": available,
-        "models": models,
-        "warning": None if available else "Ollama is not running on 127.0.0.1:11434.",
-    })
+    return jsonify({"available": False, "models": [], "is_ai_disabled": True})
 
 
 @bp.route("/api/llm/gemini/models", methods=["POST"])
 def api_llm_gemini_models():
-    """Permanently disabled in Agent-D Local-Only Architecture."""
-    return jsonify({
-        "models": [],
-        "count": 0,
-        "error": "Cloud models are disabled. Agent-D v0.5.0 operates in 100% Local Sovereign Mode (Ollama 127.0.0.1:11434).",
-    })
+    return jsonify({"models": [], "count": 0, "is_ai_disabled": True})
 
 
 @bp.route("/api/llm/custom/probe", methods=["POST"])
 def api_llm_custom_probe():
-    """
-    Probe an OpenAI-compatible custom endpoint (LM Studio, LocalAI, OpenRouter, etc.).
-    Body: { "url": "http://localhost:1234/v1" }
-    """
-    import urllib.request
-    import urllib.parse
-    import json as _json
-
-    data = request.get_json(silent=True) or {}
-    endpoint = (data.get("url") or "http://localhost:1234/v1").rstrip("/")
-    probe_target = f"{endpoint}/models" if not endpoint.endswith("/models") else endpoint
-
-    # 1. SSRF Guard: Validate URL scheme strictly to HTTP/HTTPS
-    try:
-        parsed = urllib.parse.urlparse(probe_target)
-        if parsed.scheme not in ("http", "https"):
-            return jsonify({"error": "Only HTTP and HTTPS protocols are supported."}), 400
-        
-        host = (parsed.hostname or "").lower()
-        if host in ("169.254.169.254", "metadata.google.internal", "instance-data"):
-            return jsonify({"error": "Prohibited target host."}), 403
-    except Exception:
-        return jsonify({"error": "Malformed URL endpoint."}), 400
-
-    try:
-        req = urllib.request.Request(probe_target, headers={"User-Agent": "PM-Tool"})
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
-            body = _json.loads(resp.read().decode("utf-8"))
-            models = []
-            if "data" in body and isinstance(body["data"], list):
-                models = [
-                    m.get("id") or m.get("name")
-                    for m in body["data"]
-                    if isinstance(m, dict)
-                ]
-            return jsonify({
-                "online": True,
-                "status": "connected",
-                "models": models,
-                "message": f"Connected! Found {len(models)} model(s).",
-            })
-    except Exception:
-        return jsonify({
-            "online": False,
-            "status": "unreachable",
-            "models": [],
-            "message": f"Endpoint unreachable at {probe_target}. Ensure your local model server is running.",
-        })
+    return jsonify({"ok": False, "message": "AI functionality is disabled.", "is_ai_disabled": True})
 
 
 @bp.route("/api/settings/ai-policies", methods=["GET", "POST"])
@@ -1248,156 +1113,41 @@ def api_v1_appointment_detail(appointment_id):
     return jsonify({"appointment": updated})
 
 
-# ── Clinical Copilot Chat Sessions & SSE Streaming ────────────────────────────
+# ── Clinical Chat Endpoints (Completely Disabled) ─────────────────────────────
 
 @bp.route("/api/v1/chat/sessions", methods=["GET", "POST"])
 def api_v1_chat_sessions():
-    """Lists or creates clinical consultation sessions in context.db."""
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "Clinical Consultation").strip()
-        patient_id = data.get("patient_id")
-        session = context_db.create_chat_session(title=title, patient_id=patient_id)
-        return jsonify({"session": session}), 201
-
-    patient_id = request.args.get("patient_id")
-    sessions = context_db.list_chat_sessions(patient_id=patient_id)
-    return jsonify({"sessions": sessions})
+    return jsonify({"sessions": []})
 
 
 @bp.route("/api/v1/chat/sessions/<session_id>", methods=["GET", "DELETE"])
 def api_v1_chat_session_detail(session_id):
-    """Retrieves chronological session history or deletes a session."""
-    if request.method == "DELETE":
-        ok = context_db.delete_chat_session(session_id)
-        if not ok:
-            return jsonify({"error": "Session not found"}), 404
-        return jsonify({"status": "deleted", "id": session_id})
-
-    session = context_db.get_chat_session(session_id)
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
-    return jsonify({
-        "session": session,
-        "messages": session.get("messages", []),
-    })
+    return jsonify({"session": None, "messages": []})
 
 
 @bp.route("/api/v1/chat/stream", methods=["POST"])
 def api_v1_chat_stream():
-    """
-    Real-time SSE streaming clinical copilot chat endpoint.
-    Streams tokens with live practice/patient temporal awareness.
-    """
-    data = request.get_json(silent=True) or {}
-    message = str(data.get("message", "")).strip()
-    session_id = data.get("session_id")
-    patient_id = data.get("patient_id")
-
-    if not message:
-        return jsonify({"error": "Message cannot be empty."}), 400
-
-    def event_stream():
-        for chunk in clinical_chat.stream_clinical_chat(
-            message=message,
-            session_id=session_id,
-            patient_id=patient_id,
-        ):
-            yield chunk
-
-    return Response(
-        stream_with_context(event_stream()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
 
 
 @bp.route("/api/v1/chat", methods=["POST"])
 def api_v1_chat_sync():
-    """Synchronous clinical chat endpoint."""
-    data = request.get_json(silent=True) or {}
-    message = str(data.get("message", "")).strip()
-    session_id = data.get("session_id")
-    patient_id = data.get("patient_id")
+    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
 
-    if not message:
-        return jsonify({"error": "Message cannot be empty."}), 400
-
-    result = clinical_chat.generate_clinical_chat_sync(
-        message=message,
-        session_id=session_id,
-        patient_id=patient_id,
-    )
-    if "error" in result:
-        return jsonify({"error": result["error"]}), 400
-    return jsonify(result)
-
-
-# ── Legacy Chat Route Compatibility (context.db backed) ───────────────────────
 
 @bp.route("/api/conversations", methods=["GET", "POST"])
 def api_conversations():
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        title = (data.get("title") or "Clinical Consultation").strip()
-        patient_id = data.get("patient_id")
-        session = context_db.create_chat_session(title=title, patient_id=patient_id)
-        return jsonify({"conversation": session, **session}), 201
-
-    patient_id = request.args.get("patient_id")
-    sessions = context_db.list_chat_sessions(patient_id=patient_id)
-    return jsonify({"conversations": sessions})
+    return jsonify({"conversations": []})
 
 
 @bp.route("/api/conversations/<conv_id>", methods=["GET", "PATCH", "DELETE"])
 def api_conversation_detail(conv_id):
-    if request.method == "DELETE":
-        ok = context_db.delete_chat_session(conv_id)
-        if not ok:
-            return jsonify({"error": "Conversation not found"}), 404
-        return jsonify({"status": "deleted", "id": conv_id})
-
-    session = context_db.get_chat_session(conv_id)
-    if not session:
-        return jsonify({"error": "Conversation not found"}), 404
-    return jsonify({
-        "conversation": session,
-        "messages": session.get("messages", []),
-        "applied_action_keys": [],
-    })
+    return jsonify({"conversation": None, "messages": [], "applied_action_keys": []})
 
 
 @bp.route("/api/chat", methods=["POST"])
 def api_chat():
-    """Legacy chat endpoint redirected to Agent-D Clinical Copilot."""
-    data = request.get_json(silent=True) or {}
-    message = str(data.get("message", "")).strip()
-    conv_id = data.get("conversation_id")
-    patient_id = data.get("patient_id")
-
-    if not message:
-        return jsonify({"error": "Message cannot be empty."}), 400
-
-    result = clinical_chat.generate_clinical_chat_sync(
-        message=message,
-        session_id=conv_id,
-        patient_id=patient_id,
-    )
-    if "error" in result:
-        return jsonify({"error": result["error"]}), 400
-
-    return jsonify({
-        "response": result.get("response", ""),
-        "provider": "gemini",
-        "model": result.get("model", "clinical-copilot"),
-        "conversation_id": result.get("session_id", conv_id),
-        "conversation_title": "Clinical Consultation",
-        "sources": [],
-    })
+    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
 
 # ── Knowledge Base & Local Documents APIs ─────────────────────────────────────
 
@@ -1406,11 +1156,10 @@ def api_documents():
     project_id = request.args.get("project_id", type=int)
     file_type = request.args.get("file_type")
     docs = db.list_documents(project_id=project_id, file_type=file_type)
-    total_chunks = ai_db.get_total_chunks_count()
     return jsonify({
         "documents": docs,
         "count": len(docs),
-        "total_chunks": total_chunks,
+        "total_chunks": 0,
     })
 
 
@@ -1474,7 +1223,6 @@ def api_delete_document(doc_id: int):
         return jsonify({"error": "Document not found"}), 404
 
     db.delete_document(doc_id)
-    ai_db.delete_document_chunks(doc_id)
     return jsonify({"status": "deleted", "id": doc_id})
 
 
@@ -1483,8 +1231,7 @@ def api_document_chunks(doc_id: int):
     doc = db.get_document(doc_id)
     if not doc:
         return jsonify({"error": "Document not found"}), 404
-    chunks = ai_db.get_chunks_for_document(doc_id)
-    return jsonify({"document": doc, "chunks": chunks, "count": len(chunks)})
+    return jsonify({"document": doc, "chunks": [], "count": 0})
 
 
 @bp.route("/api/documents/query", methods=["POST"])

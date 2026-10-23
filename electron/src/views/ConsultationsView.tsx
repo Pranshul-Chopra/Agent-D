@@ -12,7 +12,7 @@ import {
   X,
   FileText,
   User,
-  Bot,
+  BookOpen,
   Filter,
   ArrowRight,
   ShieldCheck,
@@ -218,11 +218,11 @@ export const ConsultationsView: React.FC<ConsultationsViewProps> = ({
 
           <div className="flex items-center gap-2.5">
             <button
-              onClick={() => onNavigate('chat')}
+              onClick={() => onNavigate('documents')}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
             >
-              <Bot className="w-3.5 h-3.5 text-[#2563EB]" />
-              <span>Ask Copilot</span>
+              <BookOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+              <span>Patient Artifacts</span>
             </button>
 
             <button
@@ -444,13 +444,13 @@ export const ConsultationsView: React.FC<ConsultationsViewProps> = ({
                           if (targetPatient && onSelectPatient) {
                             onSelectPatient(targetPatient);
                           }
-                          onNavigate('chat');
+                          onNavigate('documents');
                         }}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] hover:bg-[#DBEAFE] text-[#1D4ED8] text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-                        title="Open Copilot with this patient's context"
+                        title="Open Patient Artifacts & Living Chart"
                       >
-                        <Bot className="w-3.5 h-3.5 text-[#2563EB]" />
-                        <span>Copilot</span>
+                        <BookOpen className="w-3.5 h-3.5 text-[#2563EB]" />
+                        <span>View Chart</span>
                       </button>
 
                       {appt.status !== 'cancelled' && !isCompleted && (

@@ -1,20 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   Shield,
-  Cpu,
-  RefreshCw,
-  Terminal,
-  ExternalLink,
   Laptop,
   CheckCircle2,
-  AlertCircle,
-  Copy,
-  Info,
-  Server,
   Lock,
+  Database,
+  FileCheck,
+  Server,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
-import type { LLMStatus } from '../types';
 
 interface SettingsViewProps {
   onOpenOnboarding?: () => void;
@@ -25,22 +21,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenOnboarding,
   onOpenWhatsNew,
 }) => {
-  // LLM Status State
-  const [llmStatus, setLlmStatus] = useState<LLMStatus | null>(null);
-  const [loadingStatus, setLoadingStatus] = useState(true);
-  const [probingOllama, setProbingOllama] = useState(false);
-  const [ollamaSelectedModel, setOllamaSelectedModel] = useState('');
-  const [savingModel, setSavingModel] = useState(false);
-
   // App & Updater Info
   const [versionInfo, setVersionInfo] = useState<{ version: string } | null>(null);
   const [updaterInfo, setUpdaterInfo] = useState<{ version?: string; isPackaged?: boolean; isPortable?: boolean } | null>(null);
   const [updateStatus, setUpdateStatus] = useState<string>('Local-first release · Manual checks only.');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [isUpdateReady, setIsUpdateReady] = useState(false);
-
-  // Copied indicator
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
   // User Feedback Toast
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -50,24 +35,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setTimeout(() => {
       setFeedback(null);
     }, 4500);
-  };
-
-  const loadStatus = async () => {
-    try {
-      setLoadingStatus(true);
-      const data = await AppBridge.api.getLLMStatus();
-      setLlmStatus(data);
-
-      if (data.ollama?.selected_model) {
-        setOllamaSelectedModel(data.ollama.selected_model);
-      } else if (data.ollama?.models && data.ollama.models.length > 0) {
-        setOllamaSelectedModel(data.ollama.models[0]);
-      }
-    } catch (err: any) {
-      console.error('Failed to load local LLM status:', err);
-    } finally {
-      setLoadingStatus(false);
-    }
   };
 
   useEffect(() => {
@@ -80,7 +47,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         const u = await AppBridge.os.getUpdaterInfo();
         setUpdaterInfo(u);
       } catch (_) {}
-      await loadStatus();
     }
     init();
 
@@ -93,7 +59,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setUpdateStatus(`Downloading update (${data.percent || 0}%)...`);
       } else if (data.status === 'downloaded') {
         setCheckingUpdate(false);
-        setIsUpdateReady(true);
         setUpdateStatus(`Version v${data.version || ''} downloaded and ready to install.`);
       } else if (data.status === 'available') {
         setCheckingUpdate(false);
@@ -115,65 +80,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     };
   }, []);
 
-  // Probe local Ollama service
-  const handleProbeOllama = async () => {
-    setProbingOllama(true);
-    try {
-      const data = await AppBridge.api.probeOllama();
-      await loadStatus();
-      if (data.available) {
-        showNotification(
-          'success',
-          `Ollama detected on 127.0.0.1:11434! Available models: ${data.models.join(', ') || 'none'}`
-        );
-      } else {
-        showNotification(
-          'error',
-          'Ollama is not running on 127.0.0.1:11434. Start the service via `ollama serve` or run a model in your terminal.'
-        );
-      }
-    } catch (err: any) {
-      showNotification('error', `Could not reach Ollama: ${err.message}`);
-    } finally {
-      setProbingOllama(false);
-    }
-  };
-
-  const handleSelectModel = async (modelName: string) => {
-    setOllamaSelectedModel(modelName);
-    setSavingModel(true);
-    try {
-      await AppBridge.api.saveLLMConfig({
-        provider: 'ollama',
-        model_name: modelName,
-      });
-      showNotification('success', `Active local model updated to ${modelName}`);
-      await loadStatus();
-    } catch (err: any) {
-      showNotification('error', `Failed to save model selection: ${err.message}`);
-    } finally {
-      setSavingModel(false);
-    }
-  };
-
-  const handleCopyCommand = (cmd: string) => {
-    navigator.clipboard.writeText(cmd);
-    setCopiedCmd(cmd);
-    setTimeout(() => setCopiedCmd(null), 2500);
-  };
-
-  const isOllamaRunning = Boolean(llmStatus?.ollama?.available);
-  const installedModels = llmStatus?.ollama?.models || [];
-
   return (
     <div className="flex-1 h-full overflow-y-auto bg-white p-8">
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Settings &amp; Local AI Vault</h1>
+            <h1 className="text-xl font-bold text-slate-900">Settings &amp; Workstation Profile</h1>
             <p className="text-xs text-slate-500 mt-1">
-              Configure on-device sovereign inference (Ollama 127.0.0.1:11434) and workstation security.
+              Hardware-bound cryptographic storage, data protection compliance, and workstation settings.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -204,162 +119,101 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         )}
 
-        {/* ── 1. Single Local AI Engine Status Card ─────────────────────────── */}
+        {/* ── 1. Cryptographic Storage & Local Vault Status ─────────────────── */}
         <div className="bg-[#F8FAFC] border border-[#BFDBFE] rounded-xl p-5 shadow-2xs flex items-center justify-between">
           <div className="flex items-center gap-3.5">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                isOllamaRunning && installedModels.length > 0
-                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                  : 'bg-amber-100 text-amber-700 border border-amber-200'
-              }`}
-            >
-              <Cpu className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-100 text-emerald-700 border border-emerald-200">
+              <Database className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900">
-                  {loadingStatus
-                    ? 'Probing Local Inference Engine...'
-                    : isOllamaRunning && installedModels.length > 0
-                    ? `Local AI: Ollama Neural Engine (${ollamaSelectedModel || 'Active'})`
-                    : 'Local AI: Embedded Clinical Synthesis (Air-Gapped Fallback)'}
+                  Local Cryptographic Vault: Active &amp; Encrypted
                 </span>
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    isOllamaRunning && installedModels.length > 0
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                  }`}
-                >
-                  {isOllamaRunning && installedModels.length > 0 ? '🟢 OLLAMA ACTIVE' : '🟡 RULE SYNTHESIS'}
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                  🟢 SECURED
                 </span>
               </div>
               <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                <span>Loopback Socket: <code className="font-mono text-slate-700 bg-white px-1 py-0.5 rounded border border-slate-200">http://127.0.0.1:11434</code></span>
+                <span>Algorithm: <strong className="text-slate-800 font-semibold">AES-256-GCM</strong> (PBKDF2 Derived)</span>
                 <span>•</span>
-                <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                  <Shield className="w-3 h-3 text-emerald-600" />
-                  100% Zero Network Egress
-                </span>
+                <span>Storage: <code className="font-mono text-slate-700 bg-white px-1 py-0.5 rounded border border-slate-200">%LOCALAPPDATA%\AgentD\context.db</code></span>
               </div>
             </div>
           </div>
 
-          <button
-            onClick={handleProbeOllama}
-            disabled={probingOllama}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-[#E2E8F0] hover:border-[#2563EB] text-xs font-semibold text-slate-700 shadow-2xs transition-colors cursor-pointer"
-            title="Probe local Ollama connection"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${probingOllama ? 'animate-spin text-[#2563EB]' : ''}`} />
-            <span>{probingOllama ? 'Probing...' : 'Probe Service'}</span>
-          </button>
+          <div className="text-right">
+            <span className="text-xs font-mono font-bold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-[#E2E8F0]">
+              WAL Mode Active
+            </span>
+          </div>
         </div>
 
-        {/* ── 2. Local Ollama Step-by-Step Setup Guide ─────────────────────── */}
+        {/* ── 2. Data Protection & Software Integrity Guarantee ─────────────── */}
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
-                <Terminal className="w-4 h-4" />
+                <Shield className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900">Local AI Setup Guide (Ollama)</h2>
+                <h2 className="text-sm font-bold text-slate-900">Data Protection &amp; Sovereignty Baseline</h2>
                 <p className="text-xs text-slate-500">
-                  Follow these 3 steps to activate neural clinical inference 100% on your workstation hardware.
+                  Pure deterministic clinical workstation. Zero artificial intelligence or cloud model dependencies.
                 </p>
               </div>
             </div>
             <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
               <Lock className="w-3 h-3" />
-              <span>SOVEREIGN &amp; AIR-GAPPED</span>
+              <span>100% DETERMINISTIC</span>
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-            {/* Step 1: Install Ollama */}
-            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 font-bold text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-[11px]">
-                    1
-                  </span>
-                  <span>Install Ollama Runtime</span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Download and install the official open-source Ollama runtime for Windows on this workstation.
-                </p>
+            {/* Guarantee 1: Zero AI / LLM */}
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Zero AI / LLM Processing</span>
               </div>
-              <a
-                href="https://ollama.com"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-[#E2E8F0] text-xs font-semibold text-[#2563EB] hover:border-[#2563EB] transition-colors"
-              >
-                <span>Download from ollama.com</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                No cloud language models, no local neural networks, and no generative text synthesis. Zero risk of model hallucinations or unverified diagnostic suggestions.
+              </p>
             </div>
 
-            {/* Step 2: Pull a Model */}
-            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 font-bold text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-[11px]">
-                    2
-                  </span>
-                  <span>Pull a Local Model</span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Open Windows Terminal or PowerShell and run one of the recommended models:
-                </p>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between bg-slate-900 text-slate-100 p-2 rounded-lg font-mono text-[10.5px]">
-                    <code>ollama run llama3.2</code>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyCommand('ollama run llama3.2')}
-                      className="text-slate-400 hover:text-white cursor-pointer ml-2"
-                      title="Copy command"
-                    >
-                      {copiedCmd === 'ollama run llama3.2' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                  <div className="text-[10px] text-slate-400">
-                    Recommended: <strong>llama3.2</strong> (3B · fast notes) or <strong>llama3.1:8b</strong> (clinical depth).
-                  </div>
-                </div>
+            {/* Guarantee 2: Zero Network Egress */}
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Zero Network Egress</span>
               </div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                All patient health information, consultations, and medical logs reside strictly on this workstation's drive. Zero outbound telemetry or cloud transmission.
+              </p>
             </div>
 
-            {/* Step 3: Probe & Bind */}
-            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 font-bold text-slate-900">
-                  <span className="w-5 h-5 rounded-full bg-[#2563EB] text-white flex items-center justify-center text-[11px]">
-                    3
-                  </span>
-                  <span>Verify Local Binding</span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Click below to probe the local loopback socket. Agent-D will automatically detect your pulled models.
-                </p>
+            {/* Guarantee 3: Attending Physician Authority */}
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>Physician Final Authority</span>
               </div>
-              <button
-                type="button"
-                onClick={handleProbeOllama}
-                disabled={probingOllama}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${probingOllama ? 'animate-spin' : ''}`} />
-                <span>Probe Local Service</span>
-              </button>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Every clinical record update, prescription entry, and follow-up ticket requires explicit manual physician confirmation before committing to the vault.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 leading-relaxed flex items-start gap-2.5">
+            <FileCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div>
+              <strong className="block font-semibold">Regulatory &amp; Legal Compliance:</strong>
+              Because Agent-D operates as a pure local documentation and organization workstation with no AI decision support or cloud transmission, it complies fully with the <strong>IT Act 2000 (Section 43A / SPDI Rules)</strong> and the <strong>Digital Personal Data Protection Act (DPDP) 2023</strong> without triggering medical device software classification (CDSCO) or data fiduciary cloud processor risks.
             </div>
           </div>
         </div>
 
-        {/* ── 3. Local Model Configuration ──────────────────────────────────── */}
+        {/* ── 3. Workstation Architecture & Topology ────────────────────────── */}
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div className="flex items-center gap-2.5">
@@ -367,72 +221,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <Server className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900">Active Local Model Selection</h2>
+                <h2 className="text-sm font-bold text-slate-900">Local Architecture &amp; Loopback Topology</h2>
                 <p className="text-xs text-slate-500">
-                  Select which locally installed Ollama model generates clinical briefs and notes.
+                  Native Electron desktop container paired with an isolated local Python core service.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-                {installedModels.length} models installed
-              </span>
-            </div>
           </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Installed Models on 127.0.0.1:11434
-              </label>
-              {installedModels.length === 0 ? (
-                <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-[#E2E8F0] text-center text-xs text-slate-500">
-                  <p className="font-semibold text-slate-700">No models detected in local Ollama repository.</p>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Run <code className="font-mono text-blue-700 bg-blue-50 px-1 py-0.5 rounded">ollama run llama3.2</code> in your terminal, then click "Probe Service".
-                  </p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                  {installedModels.map((model) => {
-                    const isSelected = ollamaSelectedModel === model;
-                    return (
-                      <button
-                        key={model}
-                        type="button"
-                        onClick={() => handleSelectModel(model)}
-                        disabled={savingModel}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? 'bg-[#EFF6FF] border-[#2563EB] text-[#1D4ED8] shadow-2xs'
-                            : 'bg-white border-[#E2E8F0] hover:bg-slate-50 text-slate-800'
-                        }`}
-                      >
-                        <div>
-                          <div className="font-mono font-bold text-xs truncate">{model}</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5">On-Device Local</div>
-                        </div>
-                        {isSelected && <CheckCircle2 className="w-4 h-4 text-[#2563EB] flex-shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <div className="font-bold text-slate-900">Local Host Binding</div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                The local backend binds strictly to the loopback interface (<code className="font-mono text-slate-800 bg-white px-1 py-0.5 rounded border border-slate-200">127.0.0.1:5050</code>). It is completely invisible and unreachable from the local area network (LAN) or public internet.
+              </p>
             </div>
 
-            {/* Zero Network Egress Guarantee Banner */}
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 leading-relaxed flex items-start gap-2.5">
-              <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <div>
-                <strong className="block font-semibold">100% Private Workstation Air-Gap:</strong>
-                All model execution occurs exclusively inside local workstation RAM and GPU cores over the local loopback socket.
-                Zero patient consultation notes, diagnoses, or queries are ever transmitted over external networks or stored on cloud servers.
-              </div>
+            <div className="p-4 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] space-y-2">
+              <div className="font-bold text-slate-900">Per-Session Bearer Authentication</div>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                A cryptographically secure 32-byte authorization token is regenerated on each launch and stored exclusively in memory, protecting all internal REST endpoints against unauthorized local processes.
+              </p>
             </div>
           </div>
         </div>
 
-        {/* ── 4. Practice System & Release Updates ──────────────────────────── */}
+        {/* ── 4. Workstation Release & Updates ──────────────────────────────── */}
         <div className="bg-white border border-[#E2E8F0] rounded-xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div className="flex items-center gap-2.5">

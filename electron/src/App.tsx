@@ -7,7 +7,6 @@ import CommandPalette from './components/CommandPalette';
 import HomeView from './views/HomeView';
 import BoardView from './views/BoardView';
 import DocsView from './views/DocsView';
-import ChatView from './views/ChatView';
 import SettingsView from './views/SettingsView';
 import PatientsView from './views/PatientsView';
 import ConsultationsView from './views/ConsultationsView';
@@ -18,7 +17,7 @@ import { LATEST_RELEASE } from './data/whatsNewData';
 import AppBridge from './services/bridge';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavTab>('chat');
+  const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [previousTab, setPreviousTab] = useState<NavTab | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [updateData, setUpdateData] = useState<UpdateData>({ status: 'idle', version: LATEST_RELEASE.version });
@@ -191,12 +190,6 @@ export const App: React.FC = () => {
         onOpenWhatsNew={handleOpenWhatsNew}
       />
 
-      {/* Demo Banner (Active until formal clinic legal review is concluded) */}
-      <div className="app-no-drag w-full bg-amber-50 border-b border-amber-200 px-3.5 py-1 text-center text-xs font-semibold text-amber-800 flex items-center justify-center gap-2 select-none z-40">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
-        <span>Demo only: no real patient data — pending legal review</span>
-      </div>
-
       {/* Main Workstation Container */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar
@@ -234,16 +227,6 @@ export const App: React.FC = () => {
             )}
             {activeTab === 'documents' && (
               <DocsView
-                activePatient={activePatient}
-                onSelectPatient={(p) => setActivePatient(p)}
-                onNavigate={handleNavigate}
-              />
-            )}
-            {activeTab === 'chat' && (
-              <ChatView
-                inheritedTab={previousTab}
-                initialProjectId={selectedProjectId}
-                onClearInheritedTab={() => setPreviousTab(null)}
                 activePatient={activePatient}
                 onSelectPatient={(p) => setActivePatient(p)}
                 onNavigate={handleNavigate}

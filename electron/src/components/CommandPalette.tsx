@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Kanban,
   BookOpen,
-  Bot,
   Settings,
   Users,
   UserPlus,
@@ -83,24 +82,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     const list: PaletteAction[] = [
       // Navigation
       {
-        id: 'nav-chat',
-        category: 'Navigation',
-        title: 'Clinical Copilot',
-        subtitle: 'Conversational assistant for daily practice, queries & drafting',
-        icon: Bot,
-        shortcut: 'Ctrl+1',
-        run: () => {
-          onNavigate('chat');
-          onClose();
-        },
-      },
-      {
         id: 'nav-home',
         category: 'Navigation',
         title: 'Practice Dashboard',
         subtitle: 'Daily schedule, follow-ups, and practice metrics',
         icon: LayoutDashboard,
-        shortcut: 'Ctrl+2',
+        shortcut: 'Ctrl+1',
         run: () => {
           onNavigate('home');
           onClose();
@@ -112,7 +99,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         title: 'Patients Manager',
         subtitle: 'Directory of patient records, demographics, and clinical aliases',
         icon: Users,
-        shortcut: 'Ctrl+3',
+        shortcut: 'Ctrl+2',
         run: () => {
           onNavigate('patients');
           onClose();
@@ -124,7 +111,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         title: 'Consultations & Encounters',
         subtitle: 'Monitor active consultations, conduct clinical encounters, and dictate notes',
         icon: Calendar,
-        shortcut: 'Ctrl+4',
+        shortcut: 'Ctrl+3',
         run: () => {
           onNavigate('consultations');
           onClose();
@@ -158,7 +145,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         id: 'nav-settings',
         category: 'Navigation',
         title: 'Settings & Security Vault',
-        subtitle: 'On-device local Ollama configuration, AES-256 storage, and system probes',
+        subtitle: 'Hardware-bound AES-256 storage, local vault metrics, and practice settings',
         icon: Settings,
         shortcut: 'Ctrl+6',
         run: () => {
@@ -169,24 +156,24 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
       // Clinical Quick Actions
       {
-        id: 'act-morning-brief',
+        id: 'act-morning-agenda',
         category: 'Clinical Actions',
-        title: '☀️ Morning Practice Brief',
-        subtitle: 'Ask Copilot to summarize today\'s appointments and flagged cases',
-        icon: Sparkles,
+        title: '📅 View Today\'s Agenda',
+        subtitle: 'Inspect today\'s consultations, follow-ups, and calendar schedule',
+        icon: Calendar,
         run: () => {
-          onNavigate('chat');
+          onNavigate('home');
           onClose();
         },
       },
       {
         id: 'act-next-patient',
         category: 'Clinical Actions',
-        title: '🩺 Brief Me on Next Patient',
-        subtitle: 'Rapid pre-consult synopsis of active issues and current medications',
+        title: '🩺 Next Scheduled Encounter',
+        subtitle: 'Open the active consultations monitor to begin next patient encounter',
         icon: Stethoscope,
         run: () => {
-          onNavigate('chat');
+          onNavigate('consultations');
           onClose();
         },
       },

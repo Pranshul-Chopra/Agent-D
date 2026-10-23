@@ -29,7 +29,6 @@ os.environ["AGENT_D_AUTH_TOKEN"] = "test_auth_token_32_bytes_m3_perimeter"
 import config_db
 import context_db
 import clinical_context
-import clinical_chat
 import routes
 from flask import Flask
 
@@ -166,28 +165,8 @@ class TestMilestone3(unittest.TestCase):
         # STRICT PRIVACY: Legal name must NEVER appear in prompt!
         self.assertNotIn("Private Patient Legal Name", prompt)
 
-    def test_04_local_clinical_chat_synthesis_and_streaming(self):
-        """Test local clinical copilot response engine and SSE stream generator."""
-        # 1. Morning brief synthesis
-        res = clinical_chat.generate_clinical_chat_sync(message="Morning practice brief")
-        self.assertIn("Morning Practice Briefing", res["response"])
-        self.assertIn("Daily Practice Summary", res["response"])
-        self.assertTrue(res["session_id"])
-
-        # 2. SSE streaming generator
-        stream_chunks = list(clinical_chat.stream_clinical_chat(message="Dictate visit notes: Patient stable, BP 120/80."))
-        self.assertTrue(len(stream_chunks) > 0)
-        
-        # Check start and done events
-        first_payload = json.loads(stream_chunks[0].replace("data:", "").strip())
-        self.assertEqual(first_payload.get("event"), "start")
-        
-        last_payload = json.loads(stream_chunks[-1].replace("data:", "").strip())
-        self.assertEqual(last_payload.get("event"), "done")
-        self.assertIn("Clinical Visit Note Draft", last_payload.get("content"))
-
     def test_05_flask_rest_api_endpoints(self):
-        """Test Milestone 3 HTTP REST endpoints."""
+        """Test Milestone 3 HTTP REST endpoints with AI disabled."""
         # 1. GET /api/v1/dashboard/stats
         res = self.client.get("/api/v1/dashboard/stats")
         self.assertEqual(res.status_code, 200)
@@ -195,36 +174,10 @@ class TestMilestone3(unittest.TestCase):
         self.assertIn("total_patients", data)
         self.assertIn("today_appointments_count", data)
 
-        # 2. GET & POST /api/v1/chat/sessions
-        res = self.client.post("/api/v1/chat/sessions", json={"title": "Rest Test Session"})
-        self.assertEqual(res.status_code, 201)
-        sess_id = res.get_json()["session"]["id"]
-
-        res = self.client.get(f"/api/v1/chat/sessions/{sess_id}")
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.get_json()["session"]["id"], sess_id)
-
-        # 3. POST /api/v1/chat (Sync)
-        res = self.client.post("/api/v1/chat", json={"message": "What is on my dashboard today?", "session_id": sess_id})
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("Morning Practice Briefing", res.get_json()["response"])
-
-        # 4. POST /api/v1/chat/stream (SSE)
-        res = self.client.post("/api/v1/chat/stream", json={"message": "Medication review", "session_id": sess_id})
-        self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.mimetype, "text/event-stream")
-        stream_data = res.get_data(as_text=True)
-        self.assertIn("data:", stream_data)
-        self.assertIn("Medication Review", stream_data)
-
-        # 5. Legacy /api/chat compatibility
-        res = self.client.post("/api/chat", json={"message": "Who is next patient?", "conversation_id": sess_id})
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("response", res.get_json())
-
-        # 6. DELETE /api/v1/chat/sessions/<id>
-        res = self.client.delete(f"/api/v1/chat/sessions/{sess_id}")
-        self.assertEqual(res.status_code, 200)
+        # 2. AI Chat endpoints are disabled
+        res = self.client.post("/api/v1/chat", json={"message": "What is on my dashboard today?"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("disabled", res.get_json()["error"].lower())
 
 
 if __name__ == "__main__":

@@ -26,7 +26,6 @@ import config_db
 import context_db
 import clinical_tools
 import clinical_context
-import clinical_chat
 import routes
 from flask import Flask
 

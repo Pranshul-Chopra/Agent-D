@@ -1,628 +1,252 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   X,
-  Sparkles,
+  Stethoscope,
   ArrowRight,
   ArrowLeft,
   Check,
   CheckCircle2,
-  FolderKanban,
-  Bot,
-  Layers,
-  Kanban,
-  Database,
+  Calendar,
   BookOpen,
+  Kanban,
+  Users,
   Keyboard,
-  Compass,
-  Cpu,
-  ShieldCheck,
-  Loader2,
-  AlertCircle,
-  ExternalLink,
+  Shield,
+  Lock,
 } from 'lucide-react';
 import AppBridge from '../../services/bridge';
-import type { Project, CreateProjectPayload, LLMConfigPayload, Task } from '../../types';
 
 interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onComplete: (createdProjectId?: number) => void;
-  projects?: Project[];
+  onComplete?: () => void;
 }
-
-const DOMAIN_PRESETS = [
-  'Developer Tools',
-  'Enterprise SaaS',
-  'FinTech',
-  'HealthTech',
-  'AI / ML Platform',
-  'Consumer Mobile',
-  'E-Commerce',
-  'Infrastructure',
-];
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   isOpen,
   onClose,
   onComplete,
-  projects = [],
 }) => {
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
-  // Step 1: Workspace & Initiative Setup
-  const [projectName, setProjectName] = useState('Atlas Analytics Engine');
-  const [domain, setDomain] = useState('Enterprise SaaS');
-  const [techStack, setTechStack] = useState('React, TypeScript, Python, SQLite');
-  const [description, setDescription] = useState(
-    'Next-generation analytical instrumentation and agile execution workstation.'
-  );
-  const [seedBacklog, setSeedBacklog] = useState(true);
-
-  // Step 2: AI Gateway Configuration
-  const [provider, setProvider] = useState<'ollama' | 'offline'>('ollama');
-
-  // Ollama Probe State
-  const [probingOllama, setProbingOllama] = useState(false);
-  const [ollamaStatus, setOllamaStatus] = useState<{
-    available: boolean;
-    models: string[];
-    selected_model?: string;
-    warning?: string;
-  } | null>(null);
-  const [selectedOllamaModel, setSelectedOllamaModel] = useState('');
-
-  // Finalization State
-  const [isFinishing, setIsFinishing] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Probe Ollama on initial load or step 2 transition
-  const probeLocalOllama = async () => {
-    setProbingOllama(true);
-    try {
-      const res = await AppBridge.api.probeOllama();
-      setOllamaStatus(res);
-      if (res.available && res.models && res.models.length > 0) {
-        setSelectedOllamaModel(res.selected_model || res.models[0]);
-      }
-    } catch (err) {
-      console.warn('Ollama probe error:', err);
-      setOllamaStatus({ available: false, models: [], warning: 'Ollama service unreachable' });
-    } finally {
-      setProbingOllama(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen && currentStep === 2 && provider === 'ollama') {
-      probeLocalOllama();
-    }
-  }, [isOpen, currentStep, provider]);
+  // Step 1: Practice Profile
+  const [doctorName, setDoctorName] = useState('Dr. Alex Mercer, MD');
+  const [clinicName, setClinicName] = useState('Mercer Family Medicine & Endocrinology');
+  const [specialty, setSpecialty] = useState('Internal Medicine / Endocrinology');
 
   if (!isOpen) return null;
 
-  // Complete Onboarding & Save Configurations
-  const handleFinish = async () => {
-    setIsFinishing(true);
-    setErrorMsg(null);
-
-    let createdId: number | undefined;
-
+  const handleFinish = () => {
     try {
-      // 1. Create Initial Project if user provided a name
-      if (projectName.trim()) {
-        const payload: CreateProjectPayload = {
-          name: projectName.trim(),
-          domain: domain.trim(),
-          tech_stack: techStack.trim(),
-          description: description.trim(),
-          priority: 'high',
-          health: 'planning',
-          seed_tasks: seedBacklog,
-        };
+      localStorage.setItem('agentd_onboarding_completed', 'true');
+      localStorage.setItem('agentd_doctor_name', doctorName.trim());
+      localStorage.setItem('agentd_clinic_name', clinicName.trim());
+      localStorage.setItem('agentd_specialty', specialty.trim());
+    } catch (_) {}
 
-        const res = await AppBridge.api.createProject(payload);
-        if (res && res.id) {
-          createdId = res.id;
-
-          // If seedBacklog requested, create initial calibrated user stories
-          if (seedBacklog) {
-            const seedStories: Partial<Task>[] = [
-              {
-                title: 'Design high-throughput SQLite schema & migrations',
-                description: 'Define relational tables and foreign keys with WAL mode.',
-                status: 'todo',
-                priority: 'high',
-                story_points: 3,
-                acceptance_criteria:
-                  'Given clean database initialization, When migrations run, Then all tables and indexes exist without error.',
-              },
-              {
-                title: 'Implement interactive frontend workbench UI',
-                description: 'Build responsive single-DOM interface with keyboard navigation.',
-                status: 'in_progress',
-                priority: 'urgent',
-                story_points: 5,
-                acceptance_criteria:
-                  'Given desktop viewport, When user navigates tabs, Then view transitions complete smoothly.',
-              },
-              {
-                title: 'Verify multi-format export and automated tests',
-                description: 'Execute end-to-end regression suites across DOCX and Markdown exports.',
-                status: 'todo',
-                priority: 'med',
-                story_points: 2,
-                acceptance_criteria:
-                  'Given living document, When exported to DOCX, Then 1-inch margins and tables format accurately.',
-              },
-            ];
-
-            for (const story of seedStories) {
-              try {
-                await AppBridge.api.createTask({
-                  project_id: createdId,
-                  ...story,
-                });
-              } catch (_) {}
-            }
-          }
-        }
-      }
-
-      // 2. Configure AI Provider Preferences
-      if (provider === 'ollama') {
-        await AppBridge.api.saveLLMConfig({
-          provider: 'ollama',
-          model_name: selectedOllamaModel || undefined,
-        });
-      }
-
-      // 3. Mark Onboarding as Completed
-      localStorage.setItem('pm_tool_onboarding_completed', 'true');
-
-      // 4. Trigger completion callback
-      onComplete(createdId);
-      onClose();
-    } catch (err: any) {
-      console.error('Failed to complete onboarding:', err);
-      setErrorMsg(err.message || 'Failed to initialize workspace');
-      setIsFinishing(false);
+    if (onComplete) {
+      onComplete();
     }
-  };
-
-  const handleSkip = () => {
-    localStorage.setItem('pm_tool_onboarding_completed', 'true');
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in select-none">
-      <div className="w-full max-w-3xl rounded-2xl bg-[#161514] border border-[#2e2c2a] shadow-2xl flex flex-col overflow-hidden text-[#edeae4] max-h-[90vh]">
-        {/* Top Header & Step Tracker */}
-        <div className="px-6 py-4 border-b border-[#2e2c2a] bg-[#1a1918] flex items-center justify-between flex-shrink-0">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs select-none animate-in fade-in duration-150">
+      <div className="w-full max-w-2xl bg-white border border-[#E2E8F0] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Modal Header */}
+        <div className="px-6 py-4 border-b border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-[#e8a84c] flex items-center justify-center text-black font-mono font-bold text-xs">
-              PM
+            <div className="w-8 h-8 rounded-lg bg-[#2563EB] text-white flex items-center justify-center shadow-xs">
+              <Stethoscope className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-[#edeae4] flex items-center gap-2">
-                <span>Welcome to PM Tool</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#e8a84c]/20 text-[#e8a84c] border border-[#e8a84c]/40 font-semibold">
-                  v2.2.0 Setup
-                </span>
-              </h2>
-              <p className="text-[11px] font-mono text-[#716d67]">
-                Local-first, privacy-preserving engineering & product management
+              <h2 className="text-sm font-bold text-slate-900">Welcome to Agent-D</h2>
+              <p className="text-[11px] text-slate-500">
+                Step {currentStep} of 3 · Privacy-First Local Clinical Workstation
               </p>
             </div>
           </div>
 
-          {/* Close / Skip */}
           <button
-            onClick={handleSkip}
-            className="text-xs font-mono text-[#716d67] hover:text-[#edeae4] px-2 py-1 rounded hover:bg-[#252422] transition-colors"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
-            Skip for now
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Step Progress Indicators */}
-        <div className="px-6 py-2.5 bg-[#141413] border-b border-[#2e2c2a] flex items-center justify-between text-xs font-mono">
-          {[
-            { num: 1, label: 'Workspace' },
-            { num: 2, label: 'AI Gateway' },
-            { num: 3, label: 'Workstation Tour' },
-            { num: 4, label: 'Ready' },
-          ].map((s) => {
-            const isCurrent = currentStep === s.num;
-            const isDone = currentStep > s.num;
-            return (
-              <div key={s.num} className="flex items-center gap-2">
-                <div
-                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                    isDone
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                      : isCurrent
-                      ? 'bg-[#e8a84c] text-black'
-                      : 'bg-[#222120] text-[#716d67] border border-[#2e2c2a]'
-                  }`}
-                >
-                  {isDone ? <Check className="w-3 h-3 stroke-[2.5]" /> : s.num}
-                </div>
-                <span
-                  className={`hidden sm:inline ${
-                    isCurrent ? 'text-[#edeae4] font-semibold' : 'text-[#716d67]'
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Modal Body: Dynamic Step Content */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-0 space-y-5 custom-scroll">
-          {errorMsg && (
-            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* ─────────────────────────────────────────────────────────────
-              STEP 1: WORKSPACE & INITIATIVE SETUP
-          ───────────────────────────────────────────────────────────── */}
+        {/* Modal Body */}
+        <div className="p-6 space-y-6">
+          {/* STEP 1: Practice Profile */}
           {currentStep === 1 && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-base font-semibold text-[#edeae4]">
-                  Create your first Workspace & Initiative
-                </h3>
-                <p className="text-xs text-[#9b9690] mt-0.5">
-                  PM Tool organizes agile sprint boards, living documents, and analytical datasets around initiatives.
+                <h3 className="text-base font-bold text-slate-900">Configure Your Clinical Practice</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Set your attending physician identity and clinic profile. All data remains 100% on this local computer.
                 </p>
               </div>
 
-              {/* Initiative Name */}
-              <div className="space-y-1">
-                <label className="text-xs font-mono text-[#9b9690] font-medium">
-                  Initiative / Project Name
-                </label>
-                <input
-                  type="text"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  placeholder="e.g. Core Mobile App, Payment Gateway"
-                  className="w-full px-3 py-2 rounded-lg bg-[#111110] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] focus:outline-none focus:border-[#e8a84c] transition-colors"
-                />
-              </div>
+              <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Attending Physician Name &amp; Credentials
+                  </label>
+                  <input
+                    type="text"
+                    value={doctorName}
+                    onChange={(e) => setDoctorName(e.target.value)}
+                    placeholder="e.g. Dr. Alex Mercer, MD"
+                    className="w-full px-3.5 py-2 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-900 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                  />
+                </div>
 
-              {/* Domain Preset Chips */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-mono text-[#9b9690] font-medium">
-                  Domain / Industry
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {DOMAIN_PRESETS.map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setDomain(d)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-mono transition-all ${
-                        domain === d
-                          ? 'bg-[#e8a84c]/20 text-[#e8a84c] border border-[#e8a84c]/50 font-semibold'
-                          : 'bg-[#111110] text-[#716d67] border border-[#2e2c2a] hover:border-[#3e3c38]'
-                      }`}
-                    >
-                      {d}
-                    </button>
-                  ))}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Clinic / Practice Facility Name
+                  </label>
+                  <input
+                    type="text"
+                    value={clinicName}
+                    onChange={(e) => setClinicName(e.target.value)}
+                    placeholder="e.g. Mercer Family Practice"
+                    className="w-full px-3.5 py-2 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-900 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Primary Clinical Specialty
+                  </label>
+                  <input
+                    type="text"
+                    value={specialty}
+                    onChange={(e) => setSpecialty(e.target.value)}
+                    placeholder="e.g. Internal Medicine / Endocrinology"
+                    className="w-full px-3.5 py-2 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] text-xs font-medium text-slate-900 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                  />
                 </div>
               </div>
 
-              {/* Tech Stack */}
-              <div className="space-y-1">
-                <label className="text-xs font-mono text-[#9b9690] font-medium">
-                  Primary Engineering Tech Stack
-                </label>
-                <input
-                  type="text"
-                  value={techStack}
-                  onChange={(e) => setTechStack(e.target.value)}
-                  placeholder="e.g. React, Node, Python, Postgres"
-                  className="w-full px-3 py-2 rounded-lg bg-[#111110] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] focus:outline-none focus:border-[#e8a84c] transition-colors"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1">
-                <label className="text-xs font-mono text-[#9b9690] font-medium">
-                  Core Mission & Objectives
-                </label>
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Briefly describe what this initiative achieves..."
-                  className="w-full px-3 py-2 rounded-lg bg-[#111110] border border-[#2e2c2a] text-xs leading-relaxed text-[#edeae4] focus:outline-none focus:border-[#e8a84c] transition-colors resize-none"
-                />
-              </div>
-
-              {/* Seed Backlog Checkbox */}
-              <label className="flex items-center gap-2.5 p-3 rounded-lg bg-[#111110] border border-[#2e2c2a] cursor-pointer hover:border-[#3e3c38] transition-colors">
-                <input
-                  type="checkbox"
-                  checked={seedBacklog}
-                  onChange={(e) => setSeedBacklog(e.target.checked)}
-                  className="rounded border-[#2e2c2a] text-[#e8a84c] focus:ring-0 cursor-pointer"
-                />
-                <div className="text-xs">
-                  <span className="font-semibold text-[#edeae4]">
-                    Pre-populate with calibrated INVEST Agile user stories
-                  </span>
-                  <p className="text-[#716d67] text-[11px] mt-0.5">
-                    Includes sample acceptance criteria (Given/When/Then) and Fibonacci story points.
-                  </p>
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
+                <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="block font-semibold">Hardware-Bound Vault Storage:</strong>
+                  Your clinical records and patient charts are encrypted at rest with hardware-bound AES-256-GCM. Zero cloud transmission, zero artificial intelligence models, zero external network telemetry.
                 </div>
-              </label>
+              </div>
             </div>
           )}
 
-          {/* ─────────────────────────────────────────────────────────────
-              STEP 2: AI GATEWAY & LLM PROVIDER SELECTION
-          ───────────────────────────────────────────────────────────── */}
+          {/* STEP 2: Workstation Feature Tour */}
           {currentStep === 2 && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-base font-semibold text-[#edeae4]">
-                  Configure your AI Copilot Engine
-                </h3>
-                <p className="text-xs text-[#9b9690] mt-0.5">
-                  Agent-D operates strictly in 100% on-device mode via local Ollama or embedded rule-based clinical synthesis. Zero patient data ever leaves your computer.
+                <h3 className="text-base font-bold text-slate-900">Your Cohesive Clinical Pipeline</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  From morning schedule review to visit dictation and follow-up tracking:
                 </p>
               </div>
 
-              {/* Provider Selection Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Local Ollama Card */}
-                <div
-                  onClick={() => setProvider('ollama')}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    provider === 'ollama'
-                      ? 'bg-[#1c1c1b] border-[#e8a84c] shadow-[0_0_15px_rgba(232,168,76,0.1)]'
-                      : 'bg-[#111110] border-[#2e2c2a] hover:border-[#3e3c38]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Cpu className="w-4 h-4 text-[#e8a84c]" />
-                      <span className="font-semibold text-xs text-[#edeae4]">Local Ollama</span>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                      100% On-Device
-                    </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                <div className="p-3.5 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                    <Calendar className="w-4 h-4 text-[#2563EB]" />
+                    <span>Practice Dashboard &amp; Calendar</span>
                   </div>
-                  <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Runs locally on your device via Ollama at <code className="text-[#e8a84c]">127.0.0.1:11434</code>. Zero data leaves your machine.
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Interactive 7-column calendar widget, today agenda jump, and real-time clinical practice metrics.
                   </p>
                 </div>
 
-                {/* Offline / Embedded Rule-Based Synthesis Card */}
-                <div
-                  onClick={() => setProvider('offline')}
-                  className={`p-3.5 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                    provider === 'offline'
-                      ? 'bg-[#1c1c1b] border-[#e8a84c] shadow-[0_0_15px_rgba(232,168,76,0.1)]'
-                      : 'bg-[#111110] border-[#2e2c2a] hover:border-[#3e3c38]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-[#a1a1aa]" />
-                      <span className="font-semibold text-xs text-[#edeae4]">Embedded Synthesis</span>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/30">
-                      Air-Gapped
-                    </span>
+                <div className="p-3.5 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                    <BookOpen className="w-4 h-4 text-[#2563EB]" />
+                    <span>Patient Artifacts Studio</span>
                   </div>
-                  <p className="text-[11px] text-[#716d67] leading-relaxed">
-                    Embedded rule-based practice synthesis. Works immediately without downloading external models.
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Living patient summaries, active problem lists, and medication rosters with immutable version timelines.
                   </p>
                 </div>
-              </div>
 
-              {/* Provider Config Details Pane */}
-              <div className="p-4 rounded-xl bg-[#111110] border border-[#2e2c2a] space-y-3">
-                {provider === 'ollama' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono text-[#edeae4] font-semibold">
-                        Local Ollama Status:
-                      </span>
-                      <button
-                        onClick={probeLocalOllama}
-                        disabled={probingOllama}
-                        className="px-2.5 py-1 rounded bg-[#1c1c1b] border border-[#2e2c2a] hover:border-[#3e3c38] text-[11px] font-mono text-[#e8a84c] flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                      >
-                        {probingOllama ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Cpu className="w-3 h-3" />
-                        )}
-                        <span>Probe Status</span>
-                      </button>
-                    </div>
-
-                    {ollamaStatus?.available ? (
-                      <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-emerald-400">
-                          <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                          <span>Ollama detected on loopback with {ollamaStatus.models.length} model(s).</span>
-                        </div>
-                        {ollamaStatus.models.length > 0 && (
-                          <select
-                            value={selectedOllamaModel}
-                            onChange={(e) => setSelectedOllamaModel(e.target.value)}
-                            className="bg-[#161514] border border-[#2e2c2a] text-xs font-mono text-[#edeae4] rounded px-2 py-1 outline-none"
-                          >
-                            {ollamaStatus.models.map((m) => (
-                              <option key={m} value={m}>
-                                {m}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="p-2.5 rounded-lg bg-[#1c1c1b] border border-[#2e2c2a] text-xs text-[#9b9690] leading-relaxed">
-                        Ollama not currently detected on <code className="text-[#e8a84c]">127.0.0.1:11434</code>. Run <code className="text-[#edeae4] bg-[#222120] px-1 rounded">ollama run llama3.2</code> in your terminal if you wish to use local models, or choose Embedded Synthesis.
-                      </div>
-                    )}
+                <div className="p-3.5 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                    <Stethoscope className="w-4 h-4 text-[#2563EB]" />
+                    <span>Consultations &amp; Encounters</span>
                   </div>
-                )}
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Start encounters, record clinical dictation and vital signs, and close visits with automatic log archives.
+                  </p>
+                </div>
 
-                {provider === 'offline' && (
-                  <div className="p-2.5 rounded-lg bg-[#1c1c1b] border border-[#2e2c2a] text-xs text-[#9b9690] leading-relaxed">
-                    Embedded Clinical Synthesis is active. All consultation briefings, dashboard reviews, and follow-ups run locally without any external model downloads.
+                <div className="p-3.5 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC] space-y-1">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                    <Kanban className="w-4 h-4 text-[#2563EB]" />
+                    <span>Follow-ups Kanban Board</span>
                   </div>
-                )}
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Visual drag-and-drop tracker for laboratory orders, pathology recalls, and specialist referrals.
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
-          {/* ─────────────────────────────────────────────────────────────
-              STEP 3: WORKSTATION FEATURE TOUR & HOTKEYS SPOTLIGHT
-          ───────────────────────────────────────────────────────────── */}
+          {/* STEP 3: Workstation Hotkeys & Launch */}
           {currentStep === 3 && (
             <div className="space-y-4">
               <div>
-                <h3 className="text-base font-semibold text-[#edeae4]">
-                  Workstation Architecture & Hotkeys
-                </h3>
-                <p className="text-xs text-[#9b9690] mt-0.5">
-                  PM Tool connects 3 core analytical & execution pipelines with instant global keyboard navigation.
+                <h3 className="text-base font-bold text-slate-900">Keyboard Shortcuts &amp; Ergonomics</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Navigate instantly across the entire clinical workstation without leaving your keyboard.
                 </p>
               </div>
 
-              {/* 3 Core Pipelines Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="p-3.5 rounded-xl bg-[#111110] border border-[#2e2c2a] flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <Kanban className="w-4 h-4 text-[#e8a84c]" />
-                      <span className="font-mono text-[10px] text-[#716d67]">Ctrl + 2</span>
-                    </div>
-                    <h4 className="font-semibold text-xs text-[#edeae4]">Sprint Kanban</h4>
-                    <p className="text-[11px] text-[#716d67] mt-1 leading-relaxed">
-                      INVEST user stories, story points, and calibrated pre-commit PRD decomposition.
-                    </p>
-                  </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2 text-xs">
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + K</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Command Palette</div>
                 </div>
-
-                <div className="p-3.5 rounded-xl bg-[#111110] border border-[#2e2c2a] flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <Database className="w-4 h-4 text-[#38bdf8]" />
-                      <span className="font-mono text-[10px] text-[#716d67]">Ctrl + 3</span>
-                    </div>
-                    <h4 className="font-semibold text-xs text-[#edeae4]">Data Studio</h4>
-                    <p className="text-[11px] text-[#716d67] mt-1 leading-relaxed">
-                      Safe SQL sandbox, cohort retention matrices, funnel drop-off analysis, and outlier detection.
-                    </p>
-                  </div>
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + 1</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Practice Dashboard</div>
                 </div>
-
-                <div className="p-3.5 rounded-xl bg-[#111110] border border-[#2e2c2a] flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <BookOpen className="w-4 h-4 text-[#4ade80]" />
-                      <span className="font-mono text-[10px] text-[#716d67]">Ctrl + 4</span>
-                    </div>
-                    <h4 className="font-semibold text-xs text-[#edeae4]">Artifacts Studio</h4>
-                    <p className="text-[11px] text-[#716d67] mt-1 leading-relaxed">
-                      Living PRDs and RFCs stored in dedicated <code className="text-[#e8a84c]">artifacts.db</code> with 1-click DOCX & Markdown export.
-                    </p>
-                  </div>
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + 2</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Patients Manager</div>
+                </div>
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + 3</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Consultations Monitor</div>
+                </div>
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + 4</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Patient Artifacts</div>
+                </div>
+                <div className="p-3 rounded-xl border border-[#E2E8F0] bg-[#F8FAFC]">
+                  <span className="font-mono font-bold text-[#2563EB] text-sm">Ctrl + 5</span>
+                  <div className="text-[11px] text-slate-700 font-medium mt-1">Follow-ups Board</div>
                 </div>
               </div>
 
-              {/* Global Keyboard Shortcuts Table */}
-              <div className="p-3.5 rounded-xl bg-[#111110] border border-[#2e2c2a] space-y-2">
-                <div className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[#edeae4]">
-                  <Keyboard className="w-3.5 h-3.5 text-[#e8a84c]" />
-                  <span>Essential Keyboard Shortcuts</span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
-                  <div className="p-2 rounded bg-[#161514] border border-[#2e2c2a] flex flex-col">
-                    <span className="text-[#e8a84c] font-bold">Ctrl + K</span>
-                    <span className="text-[#716d67] text-[10px]">Command Palette</span>
-                  </div>
-                  <div className="p-2 rounded bg-[#161514] border border-[#2e2c2a] flex flex-col">
-                    <span className="text-[#e8a84c] font-bold">Ctrl + B</span>
-                    <span className="text-[#716d67] text-[10px]">Toggle Sidebar</span>
-                  </div>
-                  <div className="p-2 rounded bg-[#161514] border border-[#2e2c2a] flex flex-col">
-                    <span className="text-[#e8a84c] font-bold">Ctrl + 5</span>
-                    <span className="text-[#716d67] text-[10px]">AI Copilot Chat</span>
-                  </div>
-                  <div className="p-2 rounded bg-[#161514] border border-[#2e2c2a] flex flex-col">
-                    <span className="text-[#e8a84c] font-bold">Ctrl + 1</span>
-                    <span className="text-[#716d67] text-[10px]">Workspace Home</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ─────────────────────────────────────────────────────────────
-              STEP 4: READY TO LAUNCH
-          ───────────────────────────────────────────────────────────── */}
-          {currentStep === 4 && (
-            <div className="space-y-4 py-2 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-[#e8a84c]/20 border border-[#e8a84c]/40 text-[#e8a84c] flex items-center justify-center mx-auto">
-                <Compass className="w-6 h-6 animate-pulse" />
-              </div>
-
-              <div>
-                <h3 className="text-lg font-bold text-[#edeae4]">
-                  You're all set to launch!
-                </h3>
-                <p className="text-xs text-[#9b9690] mt-1 max-w-md mx-auto">
-                  Your baseline workspace <strong className="text-[#edeae4]">"{projectName}"</strong> has been configured with segregated databases and local-first persistence.
-                </p>
-              </div>
-
-              {/* Summary Summary Card */}
-              <div className="max-w-md mx-auto p-4 rounded-xl bg-[#111110] border border-[#2e2c2a] text-left text-xs font-mono space-y-2">
-                <div className="flex justify-between border-b border-[#232220] pb-1.5">
-                  <span className="text-[#716d67]">Initiative:</span>
-                  <span className="text-[#edeae4] font-semibold">{projectName}</span>
-                </div>
-                <div className="flex justify-between border-b border-[#232220] pb-1.5">
-                  <span className="text-[#716d67]">Domain / Tech:</span>
-                  <span className="text-[#edeae4]">{domain}</span>
-                </div>
-                <div className="flex justify-between border-b border-[#232220] pb-1.5">
-                  <span className="text-[#716d67]">AI Engine:</span>
-                  <span className="text-[#e8a84c] uppercase font-semibold">{provider}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#716d67]">Storage Architecture:</span>
-                  <span className="text-emerald-400 font-semibold">pmtool.db + artifacts.db</span>
-                </div>
+              <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950 leading-relaxed flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-[#2563EB] shrink-0" />
+                <span>
+                  Ready to launch. Your hardware-bound vault is initialized at <code className="font-mono font-bold">%LOCALAPPDATA%\AgentD\context.db</code>.
+                </span>
               </div>
             </div>
           )}
         </div>
 
-        {/* Modal Footer Controls */}
-        <div className="px-6 py-3.5 border-t border-[#2e2c2a] bg-[#1a1918] flex items-center justify-between flex-shrink-0">
+        {/* Modal Footer */}
+        <div className="px-6 py-4 border-t border-[#E2E8F0] bg-[#F8FAFC] flex items-center justify-between">
           <div>
             {currentStep > 1 && (
               <button
                 type="button"
                 onClick={() => setCurrentStep((prev) => (prev - 1) as any)}
-                className="px-3 py-1.5 rounded-lg border border-[#2e2c2a] hover:border-[#3e3c38] text-xs font-mono text-[#edeae4] flex items-center gap-1.5 transition-colors"
+                className="px-3.5 py-2 rounded-lg border border-[#E2E8F0] hover:bg-white text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Back</span>
@@ -631,11 +255,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {currentStep < 4 ? (
+            {currentStep < 3 ? (
               <button
                 type="button"
                 onClick={() => setCurrentStep((prev) => (prev + 1) as any)}
-                className="px-4 py-1.5 rounded-lg bg-[#e8a84c] hover:bg-[#d4963d] text-black font-semibold text-xs font-mono flex items-center gap-1.5 transition-colors shadow-sm"
+                className="px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
               >
                 <span>Continue</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -643,21 +267,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
             ) : (
               <button
                 type="button"
-                disabled={isFinishing}
                 onClick={handleFinish}
-                className="px-5 py-2 rounded-lg bg-[#e8a84c] hover:bg-[#d4963d] text-black font-bold text-xs font-mono flex items-center gap-2 transition-colors shadow-lg disabled:opacity-50"
+                className="px-5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-md"
               >
-                {isFinishing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Launching Workstation...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4 stroke-[2.5]" />
-                    <span>Launch PM Tool Workstation</span>
-                  </>
-                )}
+                <Check className="w-4 h-4 stroke-[2.5]" />
+                <span>Launch Workstation</span>
               </button>
             )}
           </div>

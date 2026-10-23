@@ -39,7 +39,6 @@ import config_db
 import context_db
 import clinical_tools
 import clinical_context
-import clinical_chat
 import routes
 from flask import Flask
 
@@ -85,17 +84,16 @@ class TestMilestone5(unittest.TestCase):
     # ── 1. Sovereign Local Provider & Zero-Cloud Keys Tests ───────────────────
 
     def test_01_local_provider_status(self):
-        """Test GET /api/v1/keys/status reports 100% local sovereign mode with 0 cloud keys."""
+        """Test GET /api/v1/keys/status reports AI functionality is disabled."""
         res = self.client.get("/api/v1/keys/status", headers=self.headers)
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertTrue(data.get("is_local_only"))
-        self.assertEqual(data.get("provider"), "ollama")
+        self.assertTrue(data.get("is_ai_disabled"))
         self.assertEqual(data.get("total_keys"), 0)
         self.assertEqual(data.get("keys"), [])
 
     def test_02_cloud_keys_permanently_rejected(self):
-        """Test POST /api/v1/keys is permanently rejected in v0.5.0 local-only architecture."""
+        """Test POST /api/v1/keys is permanently rejected when AI is removed."""
         res = self.client.post(
             "/api/v1/keys",
             headers=self.headers,
@@ -103,7 +101,7 @@ class TestMilestone5(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 400)
         data = res.get_json()
-        self.assertIn("permanently disabled", data.get("error", ""))
+        self.assertIn("disabled", data.get("error", "").lower())
 
     # ── 2. Consultation Visits & Auto-Proposal Tests ──────────────────────────
 
@@ -241,20 +239,6 @@ class TestMilestone5(unittest.TestCase):
         # Ticket should now exist in the Kanban tickets table
         tickets = context_db.list_tickets(patient_id=p_id)
         self.assertTrue(any("hba1c" in t["title"].lower() for t in tickets))
-
-    # ── 3. Sovereign Local AI & Offline Fallback Tests ────────────────────────
-
-    def test_05_ollama_offline_fallback_resilience(self):
-        """Test chat streaming behavior when Ollama is offline (falls back to local synthesis)."""
-        p = context_db.create_patient(display_name="Nora Allen")
-        resp = clinical_chat.generate_clinical_chat_sync(
-            message="Provide a morning practice briefing.",
-            patient_id=p["id"],
-        )
-        # Should gracefully return local clinical synthesis with clear local note
-        self.assertIn("response", resp)
-        self.assertIn("Morning Practice Briefing", resp["response"])
-        self.assertEqual(resp.get("model"), "local-clinical-synthesis")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ShieldCheck,
-  Bot,
+  BookOpen,
   Plus,
   Stethoscope,
   ChevronRight,
@@ -123,11 +123,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </button>
 
             <button
-              onClick={() => onNavigate('chat')}
+              onClick={() => onNavigate('documents')}
               className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-2xs transition-all cursor-pointer"
             >
-              <Bot className="w-4 h-4" />
-              <span>Open AI Copilot</span>
+              <BookOpen className="w-4 h-4" />
+              <span>Patient Artifacts</span>
             </button>
           </div>
         </div>
@@ -181,7 +181,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             onOpenConsultations={() => onNavigate('consultations')}
           />
 
-          {/* Featured Guidance: AI Clinical Chief of Staff & Practice Awareness */}
+          {/* Practice Status & Clinical Encounter Launcher */}
           <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/40 p-6">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
@@ -193,21 +193,21 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
                 </div>
                 <h2 className="text-base font-bold text-slate-900 pt-1">
                   {stats.next_appointment
-                    ? `Pre-Visit Brief: Patient ${stats.next_appointment.alias}`
-                    : 'AI Clinical Chief of Staff — Active Session'}
+                    ? `Next Scheduled Encounter: Patient ${stats.next_appointment.alias}`
+                    : 'Attending Physician Clinical Workstation'}
                 </h2>
                 <p className="text-xs text-slate-600">
                   {stats.next_appointment?.reason
                     ? `Reason for visit: ${stats.next_appointment.reason}`
-                    : 'Instant morning briefings, medication reviews, and visit note dictations with doctor-in-control guardrails.'}
+                    : 'Hardware-bound AES-256 local vault. Zero cloud transmission, 100% deterministic physician-curated records.'}
                 </p>
               </div>
 
               <button
-                onClick={() => onNavigate('chat')}
+                onClick={() => onNavigate('consultations')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               >
-                <span>Consult with Copilot</span>
+                <span>Start Encounter</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -215,28 +215,28 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
               <div className="p-3 rounded-lg bg-white border border-[#E2E8F0]">
                 <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                  Temporal Awareness
+                  Curated Patient Artifacts
                 </div>
                 <div className="text-xs text-slate-800">
-                  Real-time local clock and practice schedule injected into every LLM consultation prompt.
-                </div>
-              </div>
-
-              <div className="p-3 rounded-lg bg-white border border-[#BFDBFE]">
-                <div className="text-[11px] font-semibold text-amber-600 uppercase tracking-wider mb-1">
-                  Watch-For Guardrails
-                </div>
-                <div className="text-xs text-slate-800">
-                  Automatic clinical flag checks for active allergies, interactions, and vital ranges.
+                  Living patient summaries, chronic conditions, and medication lists curated directly by the physician.
                 </div>
               </div>
 
               <div className="p-3 rounded-lg bg-white border border-[#E2E8F0]">
                 <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                  De-Identification Perimeter
+                  Live Encounters & Dictation
                 </div>
                 <div className="text-xs text-slate-800">
-                  Cryptographic patient aliases (PT-XXXX) ensure external LLM calls remain 100% private.
+                  Encounter dictations and vitals are encrypted at rest with hardware-bound AES-256-GCM.
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-white border border-[#E2E8F0]">
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+                  Physician Approval Gate
+                </div>
+                <div className="text-xs text-slate-800">
+                  Every differential chart update and follow-up ticket requires explicit physician signature before committing.
                 </div>
               </div>
             </div>

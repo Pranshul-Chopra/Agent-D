@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Kanban,
   BookOpen,
-  Bot,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -31,7 +30,6 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'chat', label: 'Copilot', icon: Bot, badge: 'AI' },
   { id: 'home', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'patients', label: 'Patients', icon: Users },
   { id: 'consultations', label: 'Consultations', icon: Calendar, badge: 'Live' },

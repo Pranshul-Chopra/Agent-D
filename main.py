@@ -17,7 +17,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from flask import Flask
 import db
-import ai_db
 import config_db
 import context_db
 import routes
@@ -192,7 +191,6 @@ def ping_flask(url: str = FLASK_PING_URL, thread: threading.Thread | None = None
 
 if __name__ == "__main__":
     db.init_db()
-    ai_db.init_ai_db()
     config_db.init_config_db()
     context_db.init_context_db()
 
