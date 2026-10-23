@@ -1,11 +1,10 @@
 """
-config_db.py — Config Database Manager for Agent-D.
+config_db.py — Sovereign Local Configuration Manager for Agent-D (v0.5.0).
 Manages %LOCALAPPDATA%\\AgentD\\config.db:
-- Application configuration & preferences
-- Multi-key Gemini API credentials (encrypted at rest with AES-256-GCM)
-- Per-key rate limit & cooldown statistics
+- Application configuration & preferences (local Ollama model, UI state)
 - Versioned system prompt templates
-- Application schema state
+- Application schema state & migrations
+- Zero cloud API credentials or remote keys (permanently removed in v0.5.0)
 """
 
 import os
@@ -108,28 +107,6 @@ def init_config_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS api_keys (
-            id TEXT PRIMARY KEY,
-            provider TEXT NOT NULL DEFAULT 'gemini',
-            key_label TEXT NOT NULL,
-            encrypted_key TEXT NOT NULL,
-            masked_key TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            priority INTEGER NOT NULL DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS key_usage (
-            key_id TEXT PRIMARY KEY,
-            total_calls INTEGER NOT NULL DEFAULT 0,
-            successful_calls INTEGER NOT NULL DEFAULT 0,
-            rate_limit_errors INTEGER NOT NULL DEFAULT 0,
-            last_used_at TIMESTAMP,
-            cooldown_until TIMESTAMP,
-            last_error_message TEXT,
-            FOREIGN KEY (key_id) REFERENCES api_keys(id) ON DELETE CASCADE
-        );
-
         CREATE TABLE IF NOT EXISTS prompt_templates (
             id TEXT PRIMARY KEY,
             template_name TEXT NOT NULL UNIQUE,
@@ -143,6 +120,10 @@ def init_config_db():
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        -- v0.5.0 Sovereign Migration: Wipe any legacy cloud API key tables from disk
+        DROP TABLE IF EXISTS key_usage;
+        DROP TABLE IF EXISTS api_keys;
         """)
         conn.commit()
 
@@ -210,113 +191,6 @@ def set_setting(key: str, value: str):
         conn.commit()
 
 
-# ── Multi-Key Gemini API Key Management ──────────────────────────────────────
-
-def add_api_key(key_label: str, raw_key: str, provider: str = "gemini", priority: int = 1) -> Dict[str, Any]:
-    raw_key = raw_key.strip()
-    if not raw_key:
-        raise ValueError("API key cannot be empty")
-
-    key_id = str(uuid.uuid4())
-    encrypted = crypto_utils.encrypt_text(raw_key)
-
-    # Mask key for safe UI display (e.g. AIzaSy...4xQ1)
-    if len(raw_key) > 10:
-        masked = raw_key[:6] + "..." + raw_key[-4:]
-    else:
-        masked = "***"
-
-    with get_config_db() as conn:
-        conn.execute(
-            """
-            INSERT INTO api_keys (id, provider, key_label, encrypted_key, masked_key, is_active, priority)
-            VALUES (?, ?, ?, ?, ?, 1, ?)
-            """,
-            (key_id, provider, key_label, encrypted, masked, priority),
-        )
-        conn.execute(
-            "INSERT INTO key_usage (key_id, total_calls, successful_calls, rate_limit_errors) VALUES (?, 0, 0, 0)",
-            (key_id,),
-        )
-        conn.commit()
-
-    return {
-        "id": key_id,
-        "provider": provider,
-        "key_label": key_label,
-        "masked_key": masked,
-        "is_active": 1,
-        "priority": priority,
-    }
-
-
-def list_api_keys(include_raw: bool = False) -> List[Dict[str, Any]]:
-    with get_config_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key, k.is_active, k.priority, k.created_at,
-                   u.total_calls, u.successful_calls, u.rate_limit_errors, u.last_used_at, u.cooldown_until, u.last_error_message
-            FROM api_keys k
-            LEFT JOIN key_usage u ON k.id = u.key_id
-            ORDER BY k.priority ASC, k.created_at ASC
-            """
-        ).fetchall()
-
-        results = []
-        for r in rows:
-            item = dict(r)
-            if include_raw:
-                item["raw_key"] = crypto_utils.decrypt_text(item["encrypted_key"])
-            del item["encrypted_key"]
-            results.append(item)
-        return results
-
-
-def delete_api_key(key_id: str) -> bool:
-    with get_config_db() as conn:
-        cur = conn.execute("DELETE FROM api_keys WHERE id = ?", (key_id,))
-        conn.commit()
-        return cur.rowcount > 0
-
-
-def record_key_usage(key_id: str, success: bool, error_msg: Optional[str] = None, is_rate_limited: bool = False):
-    now = datetime.now(timezone.utc).isoformat()
-    cooldown = None
-    if is_rate_limited:
-        # 60 second cooldown on 429 quota exhaustion
-        from datetime import timedelta
-        cooldown = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
-
-    with get_config_db() as conn:
-        if success:
-            conn.execute(
-                """
-                UPDATE key_usage
-                SET total_calls = total_calls + 1,
-                    successful_calls = successful_calls + 1,
-                    last_used_at = ?,
-                    cooldown_until = NULL,
-                    last_error_message = NULL
-                WHERE key_id = ?
-                """,
-                (now, key_id),
-            )
-        else:
-            conn.execute(
-                """
-                UPDATE key_usage
-                SET total_calls = total_calls + 1,
-                    rate_limit_errors = rate_limit_errors + (CASE WHEN ? THEN 1 ELSE 0 END),
-                    last_used_at = ?,
-                    cooldown_until = COALESCE(?, cooldown_until),
-                    last_error_message = ?
-                WHERE key_id = ?
-                """,
-                (1 if is_rate_limited else 0, now, cooldown, error_msg, key_id),
-            )
-        conn.commit()
-
-
 def get_prompt_template(name: str) -> Optional[str]:
     with get_config_db() as conn:
         row = conn.execute(
@@ -326,111 +200,44 @@ def get_prompt_template(name: str) -> Optional[str]:
         return row["prompt_content"] if row else None
 
 
+# ── Sovereign Local Mode Compatibility Stubs ─────────────────────────────────
+# Cloud API keys and remote vaults are permanently disabled in v0.5.0.
+# All inferences run strictly locally via Ollama or embedded rule synthesis.
+
+def add_api_key(key_label: str, raw_key: str, provider: str = "gemini", priority: int = 1) -> Dict[str, Any]:
+    raise RuntimeError("Cloud API key storage is permanently disabled in v0.5.0. Agent-D operates in 100% on-device sovereign mode.")
+
+
+def list_api_keys(include_raw: bool = False) -> List[Dict[str, Any]]:
+    return []
+
+
+def delete_api_key(key_id: str) -> bool:
+    return False
+
+
+def record_key_usage(key_id: str, success: bool, error_msg: Optional[str] = None, is_rate_limited: bool = False):
+    pass
+
+
 def get_active_rotated_key(provider: str = "gemini", allow_cooldown: bool = False) -> Optional[Dict[str, Any]]:
-    """
-    Returns an active, non-cooldown API key with the decrypted raw_key.
-    Rotates based on priority and least recently used.
-    If all keys are in cooldown and allow_cooldown is False, returns None.
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    with get_config_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key, k.priority,
-                   u.cooldown_until, u.total_calls
-            FROM api_keys k
-            LEFT JOIN key_usage u ON k.id = u.key_id
-            WHERE k.provider = ? AND k.is_active = 1
-              AND (u.cooldown_until IS NULL OR u.cooldown_until < ?)
-            ORDER BY k.priority ASC, COALESCE(u.last_used_at, '1970-01-01') ASC
-            """,
-            (provider, now),
-        ).fetchall()
-
-        if not rows:
-            if not allow_cooldown:
-                return None
-            all_keys = conn.execute(
-                "SELECT k.id, k.provider, k.key_label, k.encrypted_key, k.masked_key FROM api_keys k WHERE k.provider = ? AND k.is_active = 1",
-                (provider,),
-            ).fetchall()
-            if not all_keys:
-                return None
-            row = all_keys[0]
-        else:
-            row = rows[0]
-
-        item = dict(row)
-        item["raw_key"] = crypto_utils.decrypt_text(item["encrypted_key"])
-        del item["encrypted_key"]
-        return item
+    return None
 
 
-def get_key_pool_status(provider: str = "gemini") -> Dict[str, Any]:
-    """Returns real-time health and cooldown status of all keys in pool."""
-    now = datetime.now(timezone.utc)
-    with get_config_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT k.id, k.provider, k.key_label, k.masked_key, k.is_active, k.priority,
-                   u.total_calls, u.successful_calls, u.rate_limit_errors, u.cooldown_until,
-                   u.last_used_at, u.last_error_message
-            FROM api_keys k
-            LEFT JOIN key_usage u ON k.id = u.key_id
-            WHERE k.provider = ?
-            ORDER BY k.priority ASC, k.created_at ASC
-            """,
-            (provider,),
-        ).fetchall()
-
-        keys_info = []
-        healthy_cnt = 0
-        cooldown_cnt = 0
-        min_cooldown_remaining = None
-
-        for r in rows:
-            item = dict(r)
-            cd = item.get("cooldown_until")
-            seconds_remaining = 0
-            is_in_cooldown = False
-            if cd:
-                try:
-                    cd_dt = datetime.fromisoformat(cd.replace("Z", "+00:00"))
-                    if cd_dt > now:
-                        is_in_cooldown = True
-                        seconds_remaining = max(0, int((cd_dt - now).total_seconds()))
-                except Exception:
-                    pass
-
-            item["in_cooldown"] = is_in_cooldown
-            item["cooldown_seconds_remaining"] = seconds_remaining
-
-            if item["is_active"] and not is_in_cooldown:
-                healthy_cnt += 1
-            elif is_in_cooldown:
-                cooldown_cnt += 1
-                if min_cooldown_remaining is None or seconds_remaining < min_cooldown_remaining:
-                    min_cooldown_remaining = seconds_remaining
-
-            keys_info.append(item)
-
-        return {
-            "provider": provider,
-            "total_keys": len(keys_info),
-            "healthy_keys": healthy_cnt,
-            "cooldown_keys": cooldown_cnt,
-            "all_in_cooldown": (len(keys_info) > 0 and healthy_cnt == 0),
-            "retry_countdown_seconds": min_cooldown_remaining or 0,
-            "keys": keys_info,
-        }
+def get_key_pool_status(provider: str = "ollama") -> Dict[str, Any]:
+    """Returns sovereign local status reporting zero cloud keys."""
+    return {
+        "provider": "ollama",
+        "is_local_only": True,
+        "total_keys": 0,
+        "healthy_keys": 0,
+        "cooldown_keys": 0,
+        "all_in_cooldown": False,
+        "retry_countdown_seconds": 0,
+        "keys": [],
+    }
 
 
 def reset_key_cooldown(key_id: str) -> bool:
-    """Manually clears cooldown status for an API key."""
-    with get_config_db() as conn:
-        cur = conn.execute(
-            "UPDATE key_usage SET cooldown_until = NULL, last_error_message = NULL WHERE key_id = ?",
-            (key_id,),
-        )
-        conn.commit()
-        return cur.rowcount > 0
+    """No-op stub for backward compatibility."""
+    return True
