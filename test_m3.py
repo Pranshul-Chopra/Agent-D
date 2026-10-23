@@ -28,7 +28,6 @@ os.environ["AGENT_D_AUTH_TOKEN"] = "test_auth_token_32_bytes_m3_perimeter"
 
 import config_db
 import context_db
-import clinical_context
 import routes
 from flask import Flask
 
@@ -145,7 +144,7 @@ class TestMilestone3(unittest.TestCase):
             self.assertTrue(raw_row[0].startswith("aes_gcm_v1:"), "Message content must be encrypted at rest in SQLite")
 
     def test_03_clinical_context_and_privacy_guarantee(self):
-        """Verify temporal awareness and de-identification guarantee in clinical context."""
+        """Verify de-identification and cryptographic alias isolation in patient vault."""
         patient = context_db.create_patient(
             display_name="Private Patient Legal Name",
             date_of_birth="1975-09-22",
@@ -154,19 +153,18 @@ class TestMilestone3(unittest.TestCase):
         p_id = patient["id"]
         alias = patient["llm_alias"]
 
-        # Build clinical prompt
-        prompt = clinical_context.get_clinical_system_prompt(patient_id=p_id)
-        
-        # Must contain alias and temporal context
-        self.assertIn(alias, prompt)
-        self.assertIn("REAL-TIME PRACTICE TEMPORAL CONTEXT", prompt)
-        self.assertIn("Workstation Time", prompt)
-        
-        # STRICT PRIVACY: Legal name must NEVER appear in prompt!
-        self.assertNotIn("Private Patient Legal Name", prompt)
+        # Alias must be formatted PT-XXXX
+        self.assertTrue(alias.startswith("PT-"))
+        self.assertNotEqual(alias, "Private Patient Legal Name")
+
+        # Verify raw SQLite row encrypts the legal name
+        with context_db.get_context_db() as conn:
+            row = conn.execute("SELECT display_name FROM patients WHERE id = ?", (p_id,)).fetchone()
+            self.assertTrue(row[0].startswith("aes_gcm_v1:"))
+            self.assertNotIn("Private Patient Legal Name", row[0])
 
     def test_05_flask_rest_api_endpoints(self):
-        """Test Milestone 3 HTTP REST endpoints with AI disabled."""
+        """Test Milestone 3 HTTP REST endpoints with AI excised."""
         # 1. GET /api/v1/dashboard/stats
         res = self.client.get("/api/v1/dashboard/stats")
         self.assertEqual(res.status_code, 200)
@@ -174,10 +172,9 @@ class TestMilestone3(unittest.TestCase):
         self.assertIn("total_patients", data)
         self.assertIn("today_appointments_count", data)
 
-        # 2. AI Chat endpoints are disabled
+        # 2. Excised AI chat endpoints cleanly return 404 (non-bloated, fully removed)
         res = self.client.post("/api/v1/chat", json={"message": "What is on my dashboard today?"})
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("disabled", res.get_json()["error"].lower())
+        self.assertEqual(res.status_code, 404)
 
 
 if __name__ == "__main__":

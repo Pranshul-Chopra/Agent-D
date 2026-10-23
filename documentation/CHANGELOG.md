@@ -30,25 +30,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Retain automated clinical assistance strictly through fast, verifiable, deterministic regular-expression and keyword parsing (`context_db.py`).
   - Every staged prescription change, diagnosis update, or follow-up ticket is derived directly and verifiably from explicit doctor dictation strings, preserving physician authority with zero hallucination.
 
-#### Excised & Removed Subsystems (5,000+ Lines Cleaned)
-- **Deleted Backend Modules:**
+#### Excised & Removed Subsystems (5,000+ Lines Cleaned & Archived)
+- **Packaged into Isolated Archive (`archived_ai_copilot_system/`):**
+  - Preserved all historical AI tools, providers, gateways, context builders, and test suites in `archived_ai_copilot_system/` (`backend/`, `frontend/`, `tests/`) alongside a dedicated architectural README.
+- **Deleted Backend Modules & Context Builders from Workstation:**
   - `llm_provider.py`: Deleted `BaseLLMProvider` interface and loopback `OllamaProvider` implementation.
   - `clinical_chat.py`: Deleted conversational streaming engine, prompt assembly logic, and SSE response generators.
   - `cloud_egress.py`: Deleted cloud egress choke point and payload scrubbers.
   - `ai_db.py`: Deleted AI session database initialization and legacy chat migration routines.
+  - `clinical_context.py` & `system_context.py`: Deleted prompt context formatters and temporal injectors.
   - `llm/`: Deleted entire package containing `gateway.py` and cloud REST adapters.
-- **Deleted Automated Test Suites:**
+- **Deleted Automated Test Suites from Active Pipeline:**
   - `test_provider.py`: Excised provider conformance, streaming parser, and timeout unit tests.
   - `test_canary_egress.py`: Excised synthetic PHI canary leak and egress validation tests.
 - **Deleted Frontend Components:**
   - `ChatView.tsx`: Completely removed conversational AI chat panel, chat session history sidebar, prompt chips, and streaming UI.
-- **Retired API Endpoints & Routes (`routes.py`):**
-  - Deprecated and removed `/api/v1/chat/*`, `/api/chat`, `/api/v1/keys/*`, and `/api/llm/*`. Routes now cleanly return `410 Gone` with disabled indicators to guard against legacy client requests.
+  - `ActionCard.tsx` & `MarkdownContent.tsx`: Archived streaming proposal diff cards and markdown renderer.
+- **Completely Excised Dead Endpoints & Routes (`routes.py`):**
+  - Purged all dead endpoints from `routes.py`: `/api/v1/chat/*`, `/api/chat`, `/api/v1/keys/*`, `/api/llm/*`, `/api/settings/ai-policies`, `/api/workspace/context`, and `/api/ai/apply_action`.
+  - Excised paths now return `404 Not Found` with zero background processing or waiting logic.
+- **Excised Dead Client Calls & Types (`bridge.ts`, `types/index.ts`):**
+  - Excised `streamClinicalChat`, key management methods (`listKeys`, `addKey`, `deleteKey`, `getKeyPoolStatus`, `resetKeyCooldown`), session methods (`createConversation`, `createChatSession`, `listChatSessions`, `deleteChatSession`), and LLM probing methods from `bridge.ts`.
+  - Removed dead AI interfaces (`ApiKeyItem`, `KeyPoolStatus`, `LLMStatus`, `LLMConfigPayload`, `AITicketPolicy`, `WorkspaceContext`) from `types/index.ts`.
 - **Database Schema Cleaned (`config_db.py`):**
   - Auto-dropped legacy tables: `key_usage`, `api_keys`, and `prompt_templates`.
   - Cleaned configuration initialization to remove AI defaults, key rotation metadata, and prompt versioning.
 - **Packaging Configuration Updated (`flask.spec`):**
-  - Removed `clinical_chat`, `ai_db`, and `llm` from PyInstaller `hiddenimports`.
+  - Removed `clinical_chat`, `ai_db`, `clinical_context`, and `llm` from PyInstaller `hiddenimports`.
 - **UI Elements Removed:**
   - Removed Copilot tab from `Sidebar.tsx`, `App.tsx`, and `Titlebar.tsx`.
   - Removed Copilot quick actions (`nav-chat`, `act-morning-brief`, `act-next-patient`) from `CommandPalette.tsx`.

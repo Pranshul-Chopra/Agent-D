@@ -38,7 +38,6 @@ os.environ["AGENT_D_AUTH_TOKEN"] = "test_auth_token_32_bytes_m5_gateway"
 import config_db
 import context_db
 import clinical_tools
-import clinical_context
 import routes
 from flask import Flask
 
@@ -81,27 +80,21 @@ class TestMilestone5(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
-    # ── 1. Sovereign Local Provider & Zero-Cloud Keys Tests ───────────────────
+    # ── 1. Zero AI Endpoints Excised Tests ────────────────────────────────────
 
-    def test_01_local_provider_status(self):
-        """Test GET /api/v1/keys/status reports AI functionality is disabled."""
+    def test_01_keys_endpoints_cleanly_excised(self):
+        """Test GET /api/v1/keys/status cleanly returns 404 (endpoint removed)."""
         res = self.client.get("/api/v1/keys/status", headers=self.headers)
-        self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertTrue(data.get("is_ai_disabled"))
-        self.assertEqual(data.get("total_keys"), 0)
-        self.assertEqual(data.get("keys"), [])
+        self.assertEqual(res.status_code, 404)
 
-    def test_02_cloud_keys_permanently_rejected(self):
-        """Test POST /api/v1/keys is permanently rejected when AI is removed."""
+    def test_02_cloud_keys_cleanly_excised(self):
+        """Test POST /api/v1/keys cleanly returns 404 (endpoint removed)."""
         res = self.client.post(
             "/api/v1/keys",
             headers=self.headers,
             data=json.dumps({"api_key": "AIzaSyTestKey123456789"}),
         )
-        self.assertEqual(res.status_code, 400)
-        data = res.get_json()
-        self.assertIn("disabled", data.get("error", "").lower())
+        self.assertEqual(res.status_code, 404)
 
     # ── 2. Consultation Visits & Auto-Proposal Tests ──────────────────────────
 

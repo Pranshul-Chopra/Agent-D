@@ -85,7 +85,7 @@ class TestM6Actions(unittest.TestCase):
                 "reason": "Metformin titration consult",
             }
         }
-        res = self.client.post("/api/ai/apply_action", json=payload, headers=headers)
+        res = self.client.post("/api/tools/execute_action", json=payload, headers=headers)
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data.get("success"))

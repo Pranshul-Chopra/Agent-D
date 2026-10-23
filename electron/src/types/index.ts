@@ -105,22 +105,6 @@ export interface CreatePatientPayload {
   initial_summary?: string;
 }
 
-export interface ApiKeyItem {
-  id: string;
-  provider: string;
-  key_label: string;
-  masked_key: string;
-  is_active: number;
-  priority: number;
-  created_at?: string;
-  total_calls?: number;
-  successful_calls?: number;
-  rate_limit_errors?: number;
-  cooldown_until?: string | null;
-  last_used_at?: string | null;
-  last_error_message?: string | null;
-}
-
 export type UpdateStatus = 
   | 'idle' 
   | 'checking' 
@@ -263,86 +247,6 @@ export interface KPIWidget {
   created_at: string;
 }
 
-export type LLMProviderPref = 'auto' | 'ollama' | 'api';
-
-export interface LLMTokenLimits {
-  chat_max_tokens: number;
-  file_gen_max_tokens: number;
-  plan_max_tokens: number;
-  tool_call_max_tokens: number;
-}
-
-export interface LLMStatus {
-  active_provider: string;
-  active_model: string;
-  ollama: {
-    available: boolean;
-    models: string[];
-    selected_model?: string;
-    warning?: string;
-  };
-  api_configured: boolean;
-  api_key_display?: string;
-  api_base?: string;
-  saved_model?: string;
-  saved_provider_pref?: string;
-  setup_required: boolean;
-  token_limits?: LLMTokenLimits;
-}
-
-export interface LLMConfigPayload {
-  provider: LLMProviderPref;
-  api_key?: string;
-  api_base?: string;
-  model_name?: string;
-  chat_max_tokens?: number;
-  file_gen_max_tokens?: number;
-  plan_max_tokens?: number;
-  tool_call_max_tokens?: number;
-}
-
-export type TicketAccessScope = 'all' | 'internal_only' | 'external_only' | 'none';
-
-export interface AITicketPolicy {
-  access_scope: TicketAccessScope;
-  creation_allowed: boolean;
-}
-
-export interface WorkspaceContext {
-  policy: {
-    access_scope: TicketAccessScope;
-    creation_allowed: boolean;
-    status: string;
-  };
-  target_project?: Project;
-  projects: Project[];
-  open_tickets: Task[];
-  completed_tickets_count: number;
-  docs: Array<{
-    id: number;
-    project_id?: number | null;
-    filename: string;
-    file_type: string;
-    word_count: number;
-    chunk_count: number;
-    created_at: string;
-  }>;
-  matched_docs: Array<{
-    id: number;
-    filename: string;
-    file_type: string;
-  }>;
-  datasets: Array<{
-    id: number;
-    name: string;
-    file_type: string;
-    row_count: number;
-    column_count: number;
-    table_name: string;
-  }>;
-  kpis: KPIWidget[];
-}
-
 export interface ActionProposal {
   action: string;
   title?: string;
@@ -403,16 +307,6 @@ export interface CloseVisitPayload {
     o2?: string;
     [key: string]: any;
   };
-}
-
-export interface KeyPoolStatus {
-  provider: string;
-  total_keys: number;
-  healthy_keys: number;
-  cooldown_keys: number;
-  all_in_cooldown: boolean;
-  retry_countdown_seconds: number;
-  keys: (ApiKeyItem & { in_cooldown?: boolean; cooldown_seconds_remaining?: number })[];
 }
 
 export type ArtifactDocType = 'prd' | 'rfc' | 'brief' | 'architecture' | 'notes' | 'breakdown' | 'document';

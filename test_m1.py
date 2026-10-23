@@ -83,18 +83,10 @@ def run_tests():
         assert "Sarah" not in raw_row["display_name"], "Raw name leaked in DB"
         print("[OK] AES-256-GCM encryption at rest verified in context.db")
 
-    # 7. Multi-Key Gemini management via API
-    res_key = client.post(
-        "/api/v1/keys",
-        headers=auth_headers,
-        json={"key_label": "Primary Doctor Key", "api_key": "AIzaSyDoctorKey49102X", "priority": 1},
-    )
-    assert res_key.status_code == 201
-    kid = res_key.get_json()["key"]["id"]
-    res_keys = client.get("/api/v1/keys", headers=auth_headers)
-    assert any(k["id"] == kid for k in res_keys.get_json()["keys"])
-    print("[OK] Multi-Key Gemini Storage: added and verified in config.db")
-    client.delete(f"/api/v1/keys/{kid}", headers=auth_headers)
+    # 7. Zero AI Keys Verification: confirm keys endpoints are cleanly excised (404)
+    res_key = client.get("/api/v1/keys", headers=auth_headers)
+    assert res_key.status_code == 404, "Excised key endpoint must return 404"
+    print("[OK] Zero AI Keys: confirmed excised endpoints return 404")
 
     print("=== ALL MILESTONE 1 OBJECTIVES VERIFIED & PASSED! ===")
 

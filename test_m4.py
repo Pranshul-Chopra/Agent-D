@@ -25,7 +25,6 @@ os.environ["AGENT_D_AUTH_TOKEN"] = "test_auth_token_32_bytes_m4_perimeter"
 import config_db
 import context_db
 import clinical_tools
-import clinical_context
 import routes
 from flask import Flask
 

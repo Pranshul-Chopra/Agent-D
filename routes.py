@@ -5,8 +5,6 @@ from flask import Blueprint, render_template, request, jsonify, send_file, send_
 import db
 import config_db
 import context_db
-import clinical_context
-import system_context as workspace_context
 
 import os
 import sys
@@ -317,40 +315,6 @@ def api_v1_delete_patient_log(entry_id):
     return jsonify({"success": True, "id": entry_id})
 
 
-
-
-# ── Legacy Keys & Status (AI Disabled) ────────────────────────────────────────
-
-@bp.route("/api/v1/keys", methods=["GET"])
-def api_v1_list_keys():
-    return jsonify({"keys": [], "is_ai_disabled": True})
-
-
-@bp.route("/api/v1/keys", methods=["POST"])
-def api_v1_add_key():
-    return jsonify({
-        "error": "AI functionality is completely disabled."
-    }), 400
-
-
-@bp.route("/api/v1/keys/<key_id>", methods=["DELETE"])
-def api_v1_delete_key(key_id):
-    return jsonify({"success": True})
-
-
-@bp.route("/api/v1/keys/status", methods=["GET"])
-def api_v1_keys_status():
-    return jsonify({
-        "provider": "none",
-        "total_keys": 0,
-        "is_ai_disabled": True,
-        "keys": [],
-    })
-
-
-@bp.route("/api/v1/keys/<key_id>/reset-cooldown", methods=["POST"])
-def api_v1_reset_key_cooldown(key_id):
-    return jsonify({"success": True, "key_id": key_id})
 
 
 # ── Clinical Tickets & Action Items (Milestone 4) ─────────────────────────────
@@ -699,7 +663,6 @@ def task_metrics():
 
 
 @bp.route("/api/tools/execute_action", methods=["POST"])
-@bp.route("/api/ai/apply_action", methods=["POST"])
 def api_execute_action():
     """
     Execute an AI-proposed interactive action across:
@@ -1007,63 +970,6 @@ def task_detail(task_id: str):
         return jsonify({"error": "Task not found"}), 404
 
 
-# ── LLM / AI Endpoints (Completely Disabled in Agent-D) ──────────────────────
-
-@bp.route("/api/llm/status", methods=["GET"])
-def api_llm_status():
-    return jsonify({
-        "active_provider": "none",
-        "is_ai_disabled": True,
-        "message": "AI functionality is completely disabled."
-    })
-
-
-@bp.route("/api/llm/config", methods=["POST"])
-def api_llm_save_config():
-    return jsonify({"success": True, "is_ai_disabled": True})
-
-
-@bp.route("/api/llm/ollama/probe", methods=["GET"])
-def api_llm_ollama_probe():
-    return jsonify({"available": False, "models": [], "is_ai_disabled": True})
-
-
-@bp.route("/api/llm/ollama/models", methods=["GET"])
-def api_llm_ollama_models():
-    return jsonify({"available": False, "models": [], "is_ai_disabled": True})
-
-
-@bp.route("/api/llm/gemini/models", methods=["POST"])
-def api_llm_gemini_models():
-    return jsonify({"models": [], "count": 0, "is_ai_disabled": True})
-
-
-@bp.route("/api/llm/custom/probe", methods=["POST"])
-def api_llm_custom_probe():
-    return jsonify({"ok": False, "message": "AI functionality is disabled.", "is_ai_disabled": True})
-
-
-@bp.route("/api/settings/ai-policies", methods=["GET", "POST"])
-def api_ai_policies():
-    """Manage AI Ticket Access and Action Execution Policies."""
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        access_scope = data.get("access_scope", "all")
-        creation_allowed = data.get("creation_allowed", True)
-        updated = db.set_ai_ticket_policy(access_scope=access_scope, creation_allowed=creation_allowed)
-        return jsonify(updated)
-    return jsonify(db.get_ai_ticket_policy())
-
-
-@bp.route("/api/workspace/context", methods=["GET"])
-def api_workspace_context():
-    """Retrieve structured live workspace context with AI ticket policies applied."""
-    project_id = request.args.get("project_id", type=int)
-    user_query = request.args.get("q")
-    ctx = workspace_context.get_workspace_context(project_id=project_id, user_query=user_query)
-    return jsonify(ctx)
-
-
 # ── Practice Dashboard & Scheduling APIs ──────────────────────────────────────
 
 @bp.route("/api/v1/dashboard/stats", methods=["GET"])
@@ -1112,42 +1018,6 @@ def api_v1_appointment_detail(appointment_id):
         return jsonify({"error": "Appointment not found or no valid fields provided"}), 404
     return jsonify({"appointment": updated})
 
-
-# ── Clinical Chat Endpoints (Completely Disabled) ─────────────────────────────
-
-@bp.route("/api/v1/chat/sessions", methods=["GET", "POST"])
-def api_v1_chat_sessions():
-    return jsonify({"sessions": []})
-
-
-@bp.route("/api/v1/chat/sessions/<session_id>", methods=["GET", "DELETE"])
-def api_v1_chat_session_detail(session_id):
-    return jsonify({"session": None, "messages": []})
-
-
-@bp.route("/api/v1/chat/stream", methods=["POST"])
-def api_v1_chat_stream():
-    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
-
-
-@bp.route("/api/v1/chat", methods=["POST"])
-def api_v1_chat_sync():
-    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
-
-
-@bp.route("/api/conversations", methods=["GET", "POST"])
-def api_conversations():
-    return jsonify({"conversations": []})
-
-
-@bp.route("/api/conversations/<conv_id>", methods=["GET", "PATCH", "DELETE"])
-def api_conversation_detail(conv_id):
-    return jsonify({"conversation": None, "messages": [], "applied_action_keys": []})
-
-
-@bp.route("/api/chat", methods=["POST"])
-def api_chat():
-    return jsonify({"error": "AI Copilot functionality is completely disabled in Agent-D."}), 400
 
 # ── Knowledge Base & Local Documents APIs ─────────────────────────────────────
 

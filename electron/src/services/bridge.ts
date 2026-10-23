@@ -1,7 +1,6 @@
 import type {
   Patient,
   CreatePatientPayload,
-  ApiKeyItem,
   ArtifactDiff,
   MedicalLogEntry,
   CreateLogEntryPayload,
@@ -13,10 +12,6 @@ import type {
   DataSource,
   KPIWidget,
   UpdateData,
-  LLMStatus,
-  LLMConfigPayload,
-  AITicketPolicy,
-  WorkspaceContext,
   Artifact,
   ArtifactVersion,
   ArtifactSummaryStats,
@@ -28,7 +23,6 @@ import type {
   ConsultationVisit,
   CreateVisitPayload,
   CloseVisitPayload,
-  KeyPoolStatus,
 } from '../types';
 
 class BridgeService {
@@ -89,107 +83,6 @@ class BridgeService {
 
     return response.json();
   }
-
-  public streamClinicalChat(
-    payload: { message: string; session_id?: string; patient_id?: string },
-    callbacks: {
-      onStart?: (sessionId: string) => void;
-      onToken?: (token: string, sessionId: string) => void;
-      onDone?: (fullText: string, sessionId: string) => void;
-      onError?: (err: string) => void;
-    }
-  ): () => void {
-    const controller = new AbortController();
-
-    (async () => {
-      try {
-        const token = await this.getAuthToken();
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json',
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-
-        const res = await fetch(`${this.apiBase}/api/v1/chat/stream`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          let errMsg = `Request failed: ${res.status}`;
-          try {
-            const parsed = JSON.parse(errText);
-            if (parsed.error) errMsg = parsed.error;
-          } catch (_) {}
-          callbacks.onError?.(errMsg);
-          return;
-        }
-
-        const reader = res.body?.getReader();
-        if (!reader) {
-          callbacks.onError?.('Streaming not supported in this runtime.');
-          return;
-        }
-
-        const decoder = new TextDecoder('utf-8');
-        let buffer = '';
-        let currentSessionId = payload.session_id || '';
-        let accumulatedText = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith('data:')) continue;
-            const jsonStr = trimmed.slice(5).trim();
-            if (!jsonStr) continue;
-
-            try {
-              const data = JSON.parse(jsonStr);
-              if (data.error) {
-                callbacks.onError?.(data.error);
-                return;
-              }
-              if (data.event === 'start' && data.session_id) {
-                currentSessionId = data.session_id;
-                callbacks.onStart?.(data.session_id);
-              } else if (data.event === 'token' && data.token) {
-                accumulatedText += data.token;
-                callbacks.onToken?.(data.token, data.session_id || currentSessionId);
-              } else if (data.event === 'done') {
-                const finalText = data.content !== undefined ? data.content : accumulatedText;
-                callbacks.onDone?.(finalText, data.session_id || currentSessionId);
-                return;
-              }
-            } catch (_) {
-              // Ignore partial chunk parsing
-            }
-          }
-        }
-
-        callbacks.onDone?.(accumulatedText, currentSessionId);
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          callbacks.onError?.(err.message || 'Stream connection error');
-        }
-      }
-    })();
-
-    return () => {
-      controller.abort();
-    };
-  }
-
 
   // ── Data API Plane ─────────────────────────────────────────────────────────
   public api = {
@@ -268,24 +161,6 @@ class BridgeService {
     deletePatientLog: (entryId: string) =>
       this.request<{ success: boolean; id: string }>(`/api/v1/logs/${entryId}`, {
         method: 'DELETE',
-      }),
-
-    // Multi-Key Gemini Management (v1)
-    listKeys: () => this.request<{ keys: ApiKeyItem[] }>('/api/v1/keys'),
-    addKey: (payload: { key_label: string; api_key: string; priority?: number }) =>
-      this.request<{ key: ApiKeyItem }>('/api/v1/keys', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    deleteKey: (id: string) =>
-      this.request<{ success: boolean }>(`/api/v1/keys/${id}`, {
-        method: 'DELETE',
-      }),
-    getKeyPoolStatus: (provider: string = 'gemini') =>
-      this.request<KeyPoolStatus>(`/api/v1/keys/status?provider=${encodeURIComponent(provider)}`),
-    resetKeyCooldown: (keyId: string) =>
-      this.request<{ success: boolean; key_id: string }>(`/api/v1/keys/${keyId}/reset-cooldown`, {
-        method: 'POST',
       }),
 
     // Projects
@@ -492,60 +367,6 @@ class BridgeService {
         body: JSON.stringify({ query, project_id: projectId, top_k: topK }),
       }),
 
-    // AI Copilot & Clinical Consultation Sessions
-    createConversation: (title?: string, patientId?: string) =>
-      this.request<{ conversation: any; session: any }>('/api/v1/chat/sessions', {
-        method: 'POST',
-        body: JSON.stringify({ title, patient_id: patientId }),
-      }),
-    createChatSession: (title?: string, patientId?: string) =>
-      this.request<{ session: any; conversation: any }>('/api/v1/chat/sessions', {
-        method: 'POST',
-        body: JSON.stringify({ title, patient_id: patientId }),
-      }),
-    getConversations: (patientId?: string) => {
-      const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      return this.request<{ conversations: any[]; sessions: any[] }>(`/api/v1/chat/sessions${q}`);
-    },
-    listChatSessions: (patientId?: string) => {
-      const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
-      return this.request<{ sessions: any[] }>(`/api/v1/chat/sessions${q}`);
-    },
-    getConversation: (convId: string) =>
-      this.request<{ conversation: any; session: any; messages: any[] }>(`/api/v1/chat/sessions/${convId}`),
-    getChatSession: (sessionId: string) =>
-      this.request<{ session: any; messages: any[] }>(`/api/v1/chat/sessions/${sessionId}`),
-    deleteConversation: (convId: string) =>
-      this.request<{ status: string; id: string }>(`/api/v1/chat/sessions/${convId}`, {
-        method: 'DELETE',
-      }),
-    deleteChatSession: (sessionId: string) =>
-      this.request<{ status: string; id: string }>(`/api/v1/chat/sessions/${sessionId}`, {
-        method: 'DELETE',
-      }),
-    sendChatMessage: (payload: { message: string; conversation_id?: string; session_id?: string; patient_id?: string }) =>
-      this.request<{
-        response: string;
-        provider?: string;
-        model?: string;
-        conversation_id: string;
-        session_id: string;
-        conversation_title: string;
-        sources?: any[];
-      }>('/api/v1/chat', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    streamChat: (
-      payload: { message: string; session_id?: string; patient_id?: string },
-      callbacks: {
-        onStart?: (sessionId: string) => void;
-        onToken?: (token: string, sessionId: string) => void;
-        onDone?: (fullText: string, sessionId: string) => void;
-        onError?: (err: string) => void;
-      }
-    ) => this.streamClinicalChat(payload, callbacks),
-
     // Practice Dashboard & Scheduling (Milestone 3)
     getDashboardStats: () =>
       this.request<{
@@ -706,42 +527,6 @@ class BridgeService {
       return this.request<{ decisions: Decision[] }>(`/api/decisions${q}`);
     },
 
-    // LLM Gateway & Provider Configuration
-    getLLMStatus: () => this.request<LLMStatus>('/api/llm/status'),
-
-    saveLLMConfig: (payload: LLMConfigPayload) =>
-      this.request<{ success?: boolean; error?: string; message?: string }>('/api/llm/config', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-
-    probeOllama: () =>
-      this.request<{
-        available: boolean;
-        models: string[];
-        selected_model?: string;
-        warning?: string;
-      }>('/api/llm/ollama/probe'),
-
-    getOllamaModels: () =>
-      this.request<{
-        available: boolean;
-        models: string[];
-        warning?: string;
-      }>('/api/llm/ollama/models'),
-
-    discoverGeminiModels: (apiKey?: string) =>
-      this.request<{ models: string[]; count: number; error?: string }>('/api/llm/gemini/models', {
-        method: 'POST',
-        body: JSON.stringify({ api_key: apiKey }),
-      }),
-
-    probeCustomLLM: (url: string) =>
-      this.request<{ ok: boolean; message: string; models?: string[]; error?: string }>('/api/llm/custom/probe', {
-        method: 'POST',
-        body: JSON.stringify({ url }),
-      }),
-
     // Document Generation & Export
     exportDocx: async (
       title: string,
@@ -870,73 +655,11 @@ class BridgeService {
         }
       ),
 
-    saveArtifactFromChat: (payload: {
-      content: string;
-      title?: string;
-      doc_type?: string;
-      project_id?: number;
-    }) =>
-      this.request<{ artifact: Artifact; success: boolean; message: string }>(
-        '/api/artifacts/from-chat',
-        {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }
-      ),
-
     exportArtifactFile: async (id: number, format: 'docx' | 'markdown' | 'html'): Promise<Blob> => {
       const url = `${this.apiBase}/api/artifacts/${id}/export/${format}`;
       const res = await fetch(url, { method: 'POST' });
       if (!res.ok) throw new Error(`Failed to export artifact as ${format.toUpperCase()}`);
       return res.blob();
-    },
-
-    // ── Workspace Context & AI Policy Plane ─────────────────────────────
-    getWorkspaceContext: (params?: { projectId?: number; query?: string }) => {
-      const q = new URLSearchParams();
-      if (params?.projectId) q.set('project_id', params.projectId.toString());
-      if (params?.query) q.set('q', params.query);
-      const queryString = q.toString() ? `?${q.toString()}` : '';
-      return this.request<WorkspaceContext>(`/api/workspace/context${queryString}`);
-    },
-
-    getAIPolicies: () => this.request<AITicketPolicy>('/api/settings/ai-policies'),
-
-    updateAIPolicies: (policy: Partial<AITicketPolicy>) =>
-      this.request<AITicketPolicy>('/api/settings/ai-policies', {
-        method: 'POST',
-        body: JSON.stringify(policy),
-      }),
-
-    // ── Action Execution Plane (1-Click Apply) ───────────────────────────
-    executeAction: (
-      action: string,
-      params: Record<string, any>,
-      conversationId?: string,
-      actionKey?: string
-    ) =>
-      this.request<{
-        success: boolean;
-        action: string;
-        action_key?: string;
-        task?: Task;
-        message: string;
-      }>('/api/tools/execute_action', {
-        method: 'POST',
-        body: JSON.stringify({
-          action,
-          params,
-          conversation_id: conversationId,
-          action_key: actionKey,
-        }),
-      }),
-
-    getAppliedActions: (conversationId?: string) => {
-      const q = conversationId ? `?conversation_id=${encodeURIComponent(conversationId)}` : '';
-      return this.request<{
-        applied_actions: any[];
-        applied_action_keys: string[];
-      }>(`/api/tools/applied_actions${q}`);
     },
 
     downloadBlob: (blob: Blob, filename: string) => {

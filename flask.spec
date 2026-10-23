@@ -27,7 +27,6 @@ a = Analysis(
         'config_db',
         'context_db',
         'crypto_utils',
-        'clinical_context',
         'clinical_tools',
         'routes',
         'db',
