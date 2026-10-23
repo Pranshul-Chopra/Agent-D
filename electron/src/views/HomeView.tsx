@@ -175,7 +175,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Featured Section: Next Patient Pre-Visit Brief */}
+          {/* Interactive Clinical Calendar & Agenda Widget (from PranshulOS) */}
+          <CalendarWidget
+            onNavigate={onNavigate}
+            onOpenConsultations={() => onNavigate('consultations')}
+          />
+
+          {/* Featured Guidance: AI Clinical Chief of Staff & Practice Awareness */}
           <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF]/40 p-6">
             <div className="flex items-start justify-between">
               <div className="space-y-1">
@@ -235,12 +241,6 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate }) => {
               </div>
             </div>
           </div>
-
-          {/* Interactive Clinical Calendar & Agenda Widget (from PranshulOS) */}
-          <CalendarWidget
-            onNavigate={onNavigate}
-            onOpenConsultations={() => onNavigate('consultations')}
-          />
         </div>
       </div>
     </div>

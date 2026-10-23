@@ -25,14 +25,96 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '0.4.0',
+    codename: 'Context Sync & Pipeline Hardening',
+    date: 'October 2026',
+    isLatest: true,
+    title: 'In-View Patient Scoping, Dynamic Context Sync & CI/CD Hardening',
+    summary:
+      'Agent-D v0.4.0 shifts patient selection directly into Copilot and Artifacts Studio, enables live dynamic context synchronization across modules, and resolves CI/CD release build timeouts with optimized PyInstaller freezing.',
+    highlights: [
+      {
+        id: 'in-view-scoping',
+        icon: 'bot',
+        title: 'In-View Patient Scoping in Copilot',
+        tag: 'Workflow',
+        description:
+          'Quickly toggle between General Practice Copilot and individual patient charts (PT-XXXX) directly inside the chat header with instant demographic filtering.',
+      },
+      {
+        id: 'chart-switcher',
+        icon: 'file-text',
+        title: 'Artifacts Studio Chart Switcher',
+        tag: 'Clinical Studio',
+        description:
+          'Dedicated chart directory grid for unselected states plus an in-header [Switch Chart ▾] dropdown allowing seamless switching between patient artifacts.',
+      },
+      {
+        id: 'dashboard-realign',
+        icon: 'kpi',
+        title: 'Clinical Agenda Prioritization',
+        tag: 'Dashboard',
+        description:
+          'Promoted Clinical Calendar and Agenda directly below quick metrics, anchoring pre-visit briefs beneath the daily schedule for logical context mapping.',
+      },
+      {
+        id: 'pipeline-hardening',
+        icon: 'shield',
+        title: 'CI/CD Pipeline Freeze & Timeout Fix',
+        tag: 'Infrastructure',
+        description:
+          'Eliminated PyInstaller UPX compression hangs, added job-level 25-minute timeouts, and transitioned to atomic GitHub Releases via softprops/action-gh-release.',
+      },
+    ],
+    sections: [
+      {
+        title: 'In-View Patient Scoping & Decoupling',
+        type: 'feature',
+        items: [
+          'Removed global patient dropdown from Titlebar, keeping the top bar focused on application identity, search, and local security vault status.',
+          'Added interactive patient selector in Copilot header supporting General Practice Copilot and individual patient charts.',
+          'Built dedicated Patient Chart Selector grid in Artifacts Studio empty state with instant search, demographic summaries, and one-click opening.',
+          'Added in-header [Switch Chart ▾] dropdown in Artifacts Studio for instantaneous patient switching.',
+        ],
+      },
+      {
+        title: 'Real-Time Cross-Module Context Synchronization',
+        type: 'improvement',
+        items: [
+          'Dynamic per-turn prompt injection in Copilot querying live SQLite artifacts, recent vitals, open tickets, and today schedule on every message.',
+          'Atomic SQLite initialization of Medical Context Artifact (v1 snapshot) upon registering a new patient.',
+          'Cross-view reactive updates ensuring new patients appear immediately in Copilot and Artifact switchers.',
+        ],
+      },
+      {
+        title: 'Dashboard Layout & CI/CD Pipeline Fixes',
+        type: 'fix',
+        items: [
+          'Re-aligned HomeView: Calendar widget moved up below metrics, Pre-Visit Brief suggestion moved down.',
+          'Fixed CI/CD pipeline timeouts by disabling PyInstaller UPX compression in flask.spec.',
+          'Upgraded GitHub Actions release workflow to use softprops/action-gh-release@v2 with offline electron-builder packaging.',
+          'Included Milestone 6 action regression tests (test_m6_actions.py) in the automated CI test gate.',
+        ],
+      },
+    ],
+  },
+  {
     version: '0.3.0',
     codename: 'Clinical Doctor Platform',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'Smooth One-Click Installer & Hardened Clinical Workbench',
     summary:
       'Agent-D v0.3.0 introduces a seamless zero-prompt one-click desktop installer, comprehensive TypeScript validation, Command Palette stability, and official landing page integration.',
     highlights: [
+      {
+        id: 'engine-guide',
+        icon: 'sparkles',
+        title: 'AI Engine Setup & Trade-offs Guide',
+        tag: 'Configuration',
+        description:
+          'Comprehensive in-app reference with step-by-step instructions for Gemini Cloud API acquisition and local Ollama setup, featuring clinical accuracy vs air-gapped sovereignty trade-offs.',
+      },
       {
         id: 'smooth-installer',
         icon: 'zap',
@@ -63,6 +145,7 @@ export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
         title: 'Production Improvements',
         type: 'improvement',
         items: [
+          'Interactive AI Engine Setup Guide & Deployment Trade-offs panel in Settings.',
           'Instant one-click desktop setup installer with automatic shortcut creation.',
           'Command Palette icon mapping fix and strict TypeScript hardening.',
           'Synchronized release packaging with automated updater manifests.',

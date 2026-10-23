@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             />
             {!isCollapsed && (
               <span className="truncate text-slate-600 group-hover:text-slate-900 transition-colors">
-                v{updateData.version || '0.3.0'}
+                v{updateData.version || '0.4.0'}
               </span>
             )}
           </div>

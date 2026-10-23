@@ -12,6 +12,7 @@ jobs:
   build-and-release:
     name: Build & Publish Windows Release
     runs-on: windows-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Code
@@ -35,7 +36,7 @@ jobs:
         run: |
           python test_m1.py
           python test_m2.py
-          python -m unittest test_m3.py test_m4.py test_m5.py
+          python -m unittest test_m3.py test_m4.py test_m5.py test_m6_actions.py
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -56,10 +57,29 @@ jobs:
         run: |
           python -m PyInstaller flask.spec --noconfirm
 
-      - name: Package & Publish Electron Release
+      - name: Sync Frontend Assets to Frozen Backend
+        shell: pwsh
+        run: |
+          if (Test-Path "dist/flask/_internal/static/spa") {
+            Copy-Item -Recurse -Force static/spa/* dist/flask/_internal/static/spa/
+          }
+
+      - name: Package Desktop Executables with electron-builder
         working-directory: electron
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
-          npx electron-builder --win --publish always
+          npx electron-builder --win --publish never
+
+      - name: Publish GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

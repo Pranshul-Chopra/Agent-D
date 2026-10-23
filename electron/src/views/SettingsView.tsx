@@ -24,6 +24,11 @@ import {
   ArrowUpCircle,
   Download,
   ShieldCheck,
+  ExternalLink,
+  Terminal,
+  Cloud,
+  Laptop,
+  ArrowRight,
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
 import type { LLMStatus, LLMProviderPref, LLMConfigPayload, ApiKeyItem, KeyPoolStatus } from '../types';
@@ -350,67 +355,199 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
           </div>
         </div>
 
-        {/* Local Deployment & Identity Clarification Card */}
+        {/* AI Engine Setup Guide & Deployment Trade-offs Card */}
         <div className="bg-[#F8FAFC] border border-[#BFDBFE] rounded-xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
-                <HardDrive className="w-4 h-4" />
+                <Cpu className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900">Workstation Identity &amp; Local Hosting Architecture</h2>
+                <h2 className="text-sm font-bold text-slate-900">AI Engine Setup Guide &amp; Deployment Trade-offs</h2>
                 <p className="text-[11px] text-slate-500">
-                  Agent-D runs 100% locally on your machine with offline execution and doctor-in-control governance
+                  Step-by-step instructions to configure Google Gemini Cloud API and Local Offline Ollama with clinical trade-offs
                 </p>
               </div>
             </div>
-            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span>127.0.0.1:5050 LOCALHOST</span>
+            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
+              <span>HYBRID CLOUD &amp; LOCAL READY</span>
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Hosting Location</div>
-              <div className="font-semibold text-slate-900 flex items-center gap-1.5">
-                <code className="text-[#2563EB] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 font-mono text-[11px]">
-                  http://127.0.0.1:5050
-                </code>
+            {/* Box 1: Gemini Setup Guide */}
+            <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-2 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-mono font-bold text-[#2563EB] uppercase flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>1. Acquire Gemini API Key</span>
+                  </div>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-[#2563EB] border border-blue-200">
+                    Recommended · Free Tier
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-[11px] text-slate-700 leading-relaxed">
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#2563EB]">1.</span>
+                    <span>
+                      Visit{' '}
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#2563EB] font-medium underline inline-flex items-center gap-0.5 hover:text-[#1D4ED8]"
+                      >
+                        Google AI Studio <ExternalLink className="w-2.5 h-2.5" />
+                      </a>{' '}
+                      and sign in with your Google account.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#2563EB]">2.</span>
+                    <span>Click <strong>"Create API Key"</strong> (no credit card or billing setup required for free tier).</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#2563EB]">3.</span>
+                    <span>Copy your key (<code className="font-mono text-[10px] bg-slate-100 px-1 py-0.5 rounded">AIzaSy...</code>) and paste it into the <strong>Key Rotation Vault</strong> below.</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-[#2563EB]">4.</span>
+                    <span>Click <strong>"Add Key to Vault"</strong>. Add 2–3 keys across accounts for auto-failover!</span>
+                  </div>
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 leading-relaxed">
-                Bound to offline Windows loopback socket. Refuses all incoming WAN / LAN connections.
+
+              <div className="p-2 rounded bg-blue-50/60 border border-blue-100 text-[10px] text-blue-900 leading-normal flex items-start gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-[#2563EB] shrink-0 mt-0.5" />
+                <span>
+                  <strong>Pro-Tip:</strong> Registering 2 to 3 keys provides automatic round-robin rotation and transparent 60s cooldown rate-limit recovery.
+                </span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Encrypted Database Vault</div>
-              <div className="font-semibold text-slate-900 font-mono text-[11px]">
-                %LOCALAPPDATA%\AgentD\context.db
+            {/* Box 2: Ollama Local Setup Guide */}
+            <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-2 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-mono font-bold text-slate-700 uppercase flex items-center gap-1.5">
+                    <Laptop className="w-3.5 h-3.5 text-slate-800" />
+                    <span>2. Host Local Ollama Model</span>
+                  </div>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    100% Offline · Air-Gapped
+                  </span>
+                </div>
+
+                <div className="space-y-1.5 text-[11px] text-slate-700 leading-relaxed">
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-slate-800">1.</span>
+                    <span>
+                      Download &amp; install Ollama from{' '}
+                      <a
+                        href="https://ollama.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#2563EB] font-medium underline inline-flex items-center gap-0.5 hover:text-[#1D4ED8]"
+                      >
+                        ollama.com <ExternalLink className="w-2.5 h-2.5" />
+                      </a>.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-slate-800">2.</span>
+                    <span>Open PowerShell / Terminal on this PC and pull a clinical model:</span>
+                  </div>
+                  <div className="bg-slate-900 text-slate-100 p-1.5 rounded font-mono text-[10px] flex items-center justify-between">
+                    <code>ollama run llama3.2</code>
+                    <span className="text-slate-400 text-[9px]">or mistral / medllama2</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-bold text-slate-800">3.</span>
+                    <span>Select <strong>"Ollama Local Offline"</strong> in the Dispatch Engine below and click <strong>"Probe Service"</strong>.</span>
+                  </div>
+                </div>
               </div>
-              <div className="text-[11px] text-slate-500 leading-relaxed">
-                Protected by hardware-bound AES-256-GCM encryption at rest. Never stored in cloud.
+
+              <div className="p-2 rounded bg-emerald-50/60 border border-emerald-100 text-[10px] text-emerald-900 leading-normal flex items-start gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Zero Network Egress:</strong> Once pulled, Ollama runs entirely on your local GPU/CPU on loopback socket <code className="font-mono text-[10px]">127.0.0.1:11434</code>.
+                </span>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">PII De-Identification Perimeter</div>
-              <div className="font-semibold text-emerald-700 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Zero Cloud PII Active</span>
+            {/* Box 3: Gemini Cloud Trade-offs */}
+            <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-2">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-[11px] font-mono font-bold text-slate-700 uppercase">
+                  Gemini Cloud Engine: Trade-offs
+                </span>
+                <span className="text-[10px] text-[#2563EB] font-bold">State-of-the-Art</span>
               </div>
-              <div className="text-[11px] text-slate-500 leading-relaxed">
-                Cryptographic alias mapper substitutes all patient identifiers (e.g. PT-1042) before any external LLM call.
+
+              <div className="space-y-2 text-[11px]">
+                <div className="space-y-1">
+                  <div className="font-bold text-emerald-700 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Clinical Advantages (Pros)</span>
+                  </div>
+                  <ul className="text-slate-600 space-y-0.5 pl-4 list-disc text-[10.5px]">
+                    <li><strong>Diagnostic Nuance:</strong> Highest accuracy for complex comorbidities, pharmacology, and drug-interaction checks (Gemini 2.5 Flash).</li>
+                    <li><strong>Hardware Light:</strong> Sub-second generation with zero local GPU/RAM consumption on clinic laptops.</li>
+                    <li><strong>Free Quota:</strong> 15 RPM / 1M TPM per key with multi-key rotation pooling.</li>
+                  </ul>
+                </div>
+
+                <div className="space-y-1 pt-1 border-t border-slate-100">
+                  <div className="font-bold text-amber-800 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Trade-offs &amp; Privacy Safeguards</span>
+                  </div>
+                  <ul className="text-slate-600 space-y-0.5 pl-4 list-disc text-[10.5px]">
+                    <li>Requires active internet connection in the consultation room.</li>
+                    <li>
+                      External API transit: <em>Mitigated by Agent-D's Zero Cloud PII perimeter</em> (patient legal names are scrubbed to <code className="font-mono text-[10px] text-blue-700">PT-XXXX</code> tokens before transmission).
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-lg bg-white border border-[#E2E8F0] space-y-1">
-              <div className="text-[11px] font-mono font-bold text-slate-500 uppercase">Approval-First Safety Gate</div>
-              <div className="font-semibold text-slate-900">
-                Doctor-in-Control Verification
+            {/* Box 4: Ollama Local Trade-offs */}
+            <div className="p-4 rounded-lg bg-white border border-[#E2E8F0] space-y-2">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span className="text-[11px] font-mono font-bold text-slate-700 uppercase">
+                  Local Ollama Engine: Trade-offs
+                </span>
+                <span className="text-[10px] text-emerald-700 font-bold">100% Air-Gapped</span>
               </div>
-              <div className="text-[11px] text-slate-500 leading-relaxed">
-                Copilot proposes typed actions across consultations, dashboard, tickets, and artifacts; doctor commits with one click.
+
+              <div className="space-y-2 text-[11px]">
+                <div className="space-y-1">
+                  <div className="font-bold text-emerald-700 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Sovereignty Advantages (Pros)</span>
+                  </div>
+                  <ul className="text-slate-600 space-y-0.5 pl-4 list-disc text-[10.5px]">
+                    <li><strong>100% Offline:</strong> Functions completely without internet connection during rural or hospital clinic outages.</li>
+                    <li><strong>Absolute Privacy:</strong> Zero bytes leave the physical machine; immune to external data interception.</li>
+                    <li><strong>No Quota Limits:</strong> Unlimited inferences with zero API keys or rate-limit cooldown windows.</li>
+                  </ul>
+                </div>
+
+                <div className="space-y-1 pt-1 border-t border-slate-100">
+                  <div className="font-bold text-amber-800 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Hardware Demands &amp; Model Limitations</span>
+                  </div>
+                  <ul className="text-slate-600 space-y-0.5 pl-4 list-disc text-[10.5px]">
+                    <li><strong>Hardware Heavy:</strong> Requires dedicated NVIDIA/AMD GPU with 8GB–16GB+ VRAM (CPU mode is significantly slower).</li>
+                    <li><strong>Quantized Reasoning:</strong> Smaller 3B–8B models have lower clinical depth and higher hallucination risk on rare diseases compared to frontier models.</li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>
@@ -768,7 +905,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onOpenOnboarding, on
               <div className="text-xs text-slate-600 space-y-1">
                 <div className="flex items-center gap-2">
                   <span>Version:</span>
-                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.3.0'}</span>
+                  <span className="font-mono font-bold text-slate-900">v{versionInfo?.version || '0.4.0'}</span>
                   <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Production Release
                   </span>

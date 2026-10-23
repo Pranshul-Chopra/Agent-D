@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   BookOpen,
   User,
@@ -18,6 +18,8 @@ import {
   Loader2,
   Check,
   ChevronRight,
+  ChevronDown,
+  Search,
   GitCompare,
   RotateCcw,
   Activity,
@@ -36,15 +38,22 @@ import type {
   CreateLogEntryPayload,
   ConsultationVisit,
   ClinicalProposal,
+  NavTab,
 } from '../types';
 import ArtifactDiffModal from '../components/artifacts/ArtifactDiffModal';
 
 interface DocsViewProps {
   initialProjectId?: number | null;
   activePatient?: Patient | null;
+  onSelectPatient?: (patient: Patient | null) => void;
+  onNavigate?: (tab: NavTab) => void;
 }
 
-export const DocsView: React.FC<DocsViewProps> = ({ activePatient }) => {
+export const DocsView: React.FC<DocsViewProps> = ({
+  activePatient,
+  onSelectPatient,
+  onNavigate,
+}) => {
   const [activeTab, setActiveTab] = useState<'artifact' | 'logs' | 'visits'>('artifact');
   const [artifact, setArtifact] = useState<PatientArtifact | null>(null);
   const [versions, setVersions] = useState<PatientArtifactVersion[]>([]);
@@ -53,6 +62,48 @@ export const DocsView: React.FC<DocsViewProps> = ({ activePatient }) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+
+  // In-view patient selector & chart switching state
+  const [patientList, setPatientList] = useState<Patient[]>([]);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [isSwitchDropdownOpen, setIsSwitchDropdownOpen] = useState(false);
+  const switchDropdownRef = useRef<HTMLDivElement>(null);
+
+  const loadPatients = async () => {
+    try {
+      const res = await AppBridge.api.listPatients();
+      setPatientList(res.patients || []);
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    loadPatients();
+  }, [activePatient?.id]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (switchDropdownRef.current && !switchDropdownRef.current.contains(e.target as Node)) {
+        setIsSwitchDropdownOpen(false);
+      }
+    };
+    if (isSwitchDropdownOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isSwitchDropdownOpen]);
+
+  const filteredPatients = React.useMemo(() => {
+    if (!patientSearch.trim()) return patientList;
+    const q = patientSearch.toLowerCase();
+    return patientList.filter(
+      (p) =>
+        p.display_name.toLowerCase().includes(q) ||
+        p.llm_alias.toLowerCase().includes(q) ||
+        (p.date_of_birth && p.date_of_birth.includes(q))
+    );
+  }, [patientList, patientSearch]);
 
   // Consultation Visits State (Milestone 5)
   const [isStartVisitModalOpen, setIsStartVisitModalOpen] = useState(false);
@@ -435,15 +486,105 @@ export const DocsView: React.FC<DocsViewProps> = ({ activePatient }) => {
 
   if (!activePatient) {
     return (
-      <div className="h-full w-full bg-white flex flex-col items-center justify-center p-8 select-none">
-        <div className="max-w-md text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#EFF6FF] border border-[#BFDBFE] text-[#2563EB] flex items-center justify-center mx-auto">
-            <BookOpen className="w-6 h-6" />
+      <div className="h-full w-full bg-[#F8FAFC] flex flex-col overflow-hidden select-none">
+        {/* Top Header */}
+        <div className="h-14 border-b border-[#E2E8F0] px-8 flex items-center justify-between bg-white flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <h1 className="text-sm font-bold text-slate-900">Patient Artifacts Studio</h1>
+              <p className="text-[11px] text-slate-500">Doctor-curated single source of truth & clinical logs</p>
+            </div>
           </div>
-          <h2 className="text-base font-bold text-slate-900">No Patient Chart Selected</h2>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Please select or register a patient from the top bar to inspect and curate their medical context artifact.
-          </p>
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate('patients')}
+              className="text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
+            >
+              Open Patients Manager →
+            </button>
+          )}
+        </div>
+
+        {/* Content Container */}
+        <div className="flex-1 overflow-y-auto p-8 max-w-5xl mx-auto w-full">
+          <div className="mb-6">
+            <h2 className="text-lg font-bold text-slate-900">Select a Patient Chart to Curate Context</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Select a patient below to inspect their doctor-validated context artifact, view historical diffs, and log clinical observations.
+            </p>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative mb-6">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={patientSearch}
+              onChange={(e) => setPatientSearch(e.target.value)}
+              placeholder="Search patients by name, PT-alias, or date of birth..."
+              className="w-full text-xs pl-9 pr-4 py-2.5 rounded-xl bg-white border border-[#E2E8F0] focus:outline-none focus:border-[#2563EB] text-slate-900 shadow-sm placeholder-slate-400"
+            />
+          </div>
+
+          {/* Patient Grid */}
+          {filteredPatients.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-12 text-center space-y-3">
+              <User className="w-10 h-10 text-slate-300 mx-auto" />
+              <div className="text-sm font-semibold text-slate-700">No matching patient records found</div>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                {patientList.length === 0
+                  ? "No patients have been registered yet. Add a patient in Patients Manager to start building their clinical artifact."
+                  : "Try clearing your search query to see all patients."}
+              </p>
+              {onNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate('patients')}
+                  className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#2563EB] hover:bg-blue-700 text-white text-xs font-medium cursor-pointer transition-colors shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Register Patient</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredPatients.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => onSelectPatient?.(p)}
+                  className="bg-white rounded-xl border border-[#E2E8F0] hover:border-[#2563EB] hover:shadow-md p-4 flex flex-col justify-between cursor-pointer transition-all group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
+                        {p.llm_alias}
+                      </span>
+                      <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Active
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 group-hover:text-[#2563EB] transition-colors truncate">
+                      {p.display_name}
+                    </h3>
+                    <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
+                      <div>DOB: {p.date_of_birth || 'Not recorded'}</div>
+                      <div>{p.gender ? `${p.gender} • ` : ''}{p.blood_group ? `Blood: ${p.blood_group}` : ''}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-[#F1F5F9] flex items-center justify-between text-xs text-[#2563EB] font-semibold group-hover:translate-x-0.5 transition-transform">
+                    <span>Open Artifact Studio</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -461,7 +602,7 @@ export const DocsView: React.FC<DocsViewProps> = ({ activePatient }) => {
         {/* Header Bar */}
         <div className="h-14 border-b border-[#E2E8F0] px-8 flex items-center justify-between bg-white flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
+            <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB] flex-shrink-0">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
@@ -470,6 +611,99 @@ export const DocsView: React.FC<DocsViewProps> = ({ activePatient }) => {
                 <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
                   {activePatient.llm_alias}
                 </span>
+
+                {/* Switch Patient Chart Dropdown Button */}
+                <div className="relative" ref={switchDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSwitchDropdownOpen((prev) => !prev);
+                      if (!isSwitchDropdownOpen) {
+                        loadPatients();
+                      }
+                    }}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded border border-[#E2E8F0] hover:border-[#2563EB]/40 bg-[#F8FAFC] hover:bg-[#EFF6FF] text-[11px] font-medium text-slate-700 hover:text-[#2563EB] transition-colors cursor-pointer"
+                    title="Switch to another patient chart"
+                  >
+                    <span>Switch Chart</span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isSwitchDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isSwitchDropdownOpen && (
+                    <div className="absolute left-0 top-full mt-1.5 w-76 bg-white rounded-xl shadow-xl border border-[#E2E8F0] py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="px-3 pb-2 border-b border-[#F1F5F9]">
+                        <div className="text-xs font-semibold text-slate-800 mb-1.5">Switch Patient Chart</div>
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={patientSearch}
+                            onChange={(e) => setPatientSearch(e.target.value)}
+                            placeholder="Filter patients..."
+                            className="w-full text-xs pl-8 pr-3 py-1 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] focus:outline-none focus:border-[#2563EB] text-slate-800 placeholder-slate-400"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-h-56 overflow-y-auto py-1">
+                        {filteredPatients.map((p) => {
+                          const isSelected = p.id === activePatient.id;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                onSelectPatient?.(p);
+                                setIsSwitchDropdownOpen(false);
+                              }}
+                              className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#F8FAFC] transition-colors text-left cursor-pointer ${isSelected ? 'bg-blue-50/70 border-l-2 border-[#2563EB]' : ''}`}
+                            >
+                              <div className="min-w-0 truncate">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-slate-900 truncate">{p.display_name}</span>
+                                  <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
+                                    {p.llm_alias}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  DOB: {p.date_of_birth || 'N/A'}
+                                </div>
+                              </div>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-[#2563EB] flex-shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-1.5 px-3 border-t border-[#F1F5F9] flex items-center justify-between text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsSwitchDropdownOpen(false);
+                            onSelectPatient?.(null);
+                          }}
+                          className="text-slate-500 hover:text-slate-800 cursor-pointer"
+                        >
+                          Show Chart Grid
+                        </button>
+                        {onNavigate && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsSwitchDropdownOpen(false);
+                              onNavigate('patients');
+                            }}
+                            className="text-[#2563EB] hover:underline font-semibold cursor-pointer"
+                          >
+                            All Patients →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <span className="text-[11px] text-slate-500">• Context Artifact v{artifact?.current_version || 1}</span>
               </div>
               <p className="text-[11px] text-slate-500">

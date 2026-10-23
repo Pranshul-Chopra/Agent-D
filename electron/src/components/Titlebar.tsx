@@ -1,14 +1,12 @@
 import React from 'react';
-import { Search, Stethoscope, User, ChevronDown } from 'lucide-react';
-import type { NavTab, Patient } from '../types';
+import { Search, Stethoscope } from 'lucide-react';
+import type { NavTab } from '../types';
 
 interface TitlebarProps {
   activeTab: NavTab;
-  activePatient?: Patient | null;
   version?: string;
   onOpenPalette?: () => void;
   onOpenWhatsNew?: () => void;
-  onOpenPatientDirectory?: () => void;
 }
 
 const tabTitles: Record<NavTab, string> = {
@@ -23,15 +21,13 @@ const tabTitles: Record<NavTab, string> = {
 
 export const Titlebar: React.FC<TitlebarProps> = ({
   activeTab,
-  activePatient,
-  version = '0.3.0',
+  version = '0.4.0',
   onOpenPalette,
   onOpenWhatsNew,
-  onOpenPatientDirectory,
 }) => {
   return (
     <header className="app-drag-region h-11 w-full bg-white border-b border-[#E2E8F0] flex items-center justify-between px-3.5 select-none flex-shrink-0 z-50">
-      {/* Brand & Breadcrumbs */}
+      {/* Brand & Active View Title */}
       <div className="flex items-center gap-2.5">
         <button
           type="button"
@@ -46,29 +42,6 @@ export const Titlebar: React.FC<TitlebarProps> = ({
             Agent-D
           </span>
           <span className="text-[11px] text-slate-500 font-mono">v{version}</span>
-        </button>
-
-        <div className="h-4 w-[1px] bg-[#E2E8F0] mx-1" />
-
-        {/* Patient Context Quick Selector */}
-        <button
-          type="button"
-          onClick={onOpenPatientDirectory}
-          className="app-no-drag flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#F8FAFC] hover:bg-[#EFF6FF] border border-[#E2E8F0] hover:border-[#BFDBFE] transition-all cursor-pointer group"
-          title="Switch Active Patient Chart"
-        >
-          <User className="w-3.5 h-3.5 text-[#2563EB]" />
-          {activePatient ? (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="font-bold text-slate-900">{activePatient.display_name}</span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-white text-[#1D4ED8] border border-[#BFDBFE]">
-                {activePatient.llm_alias}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs font-medium text-slate-600 group-hover:text-[#2563EB]">Select Patient Chart</span>
-          )}
-          <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-[#2563EB]" />
         </button>
 
         <div className="h-4 w-[1px] bg-[#E2E8F0] mx-1" />

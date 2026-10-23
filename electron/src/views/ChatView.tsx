@@ -5,6 +5,8 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Search,
   MessageSquare,
   Copy,
   Check,
@@ -23,7 +25,7 @@ import {
 } from 'lucide-react';
 import AppBridge from '../services/bridge';
 import MarkdownContent from '../components/chat/MarkdownContent';
-import type { Patient } from '../types';
+import type { Patient, NavTab } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -136,9 +138,15 @@ export interface ChatViewProps {
   initialProjectId?: number | null;
   onClearInheritedTab?: () => void;
   activePatient?: Patient | null;
+  onSelectPatient?: (patient: Patient | null) => void;
+  onNavigate?: (tab: NavTab) => void;
 }
 
-export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
+export const ChatView: React.FC<ChatViewProps> = ({
+  activePatient,
+  onSelectPatient,
+  onNavigate,
+}) => {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -148,6 +156,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
   const [loading, setLoading] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
+  // In-view patient selector state
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false);
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const patientDropdownRef = useRef<HTMLDivElement>(null);
+
   // Slash commands state (from PranshulOS pattern)
   const [isSlashPopupVisible, setIsSlashPopupVisible] = useState(false);
   const [slashActiveIndex, setSlashActiveIndex] = useState(0);
@@ -155,6 +169,45 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
+
+  // Load patient directory for interactive switching
+  useEffect(() => {
+    loadPatients();
+  }, [activePatient?.id]);
+
+  const loadPatients = async () => {
+    try {
+      const res = await AppBridge.api.listPatients();
+      setPatients(res.patients || []);
+    } catch (_) {}
+  };
+
+  // Close patient dropdown when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(e.target as Node)) {
+        setIsPatientDropdownOpen(false);
+      }
+    };
+    if (isPatientDropdownOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [isPatientDropdownOpen]);
+
+  // Filtered patients for dropdown
+  const filteredPatients = React.useMemo(() => {
+    if (!patientSearchQuery.trim()) return patients;
+    const q = patientSearchQuery.toLowerCase();
+    return patients.filter(
+      (p) =>
+        p.display_name.toLowerCase().includes(q) ||
+        p.llm_alias.toLowerCase().includes(q) ||
+        (p.date_of_birth && p.date_of_birth.includes(q))
+    );
+  }, [patients, patientSearchQuery]);
 
   // Filter matching slash commands based on input
   const matchingSlashCommands = React.useMemo(() => {
@@ -508,29 +561,146 @@ export const ChatView: React.FC<ChatViewProps> = ({ activePatient }) => {
               {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
 
-            {/* Active Patient Indicator */}
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB]">
-                <Stethoscope className="w-4 h-4" />
-              </div>
+            {/* Interactive Patient Context Selector */}
+            <div className="relative" ref={patientDropdownRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPatientDropdownOpen((prev) => !prev);
+                  if (!isPatientDropdownOpen) {
+                    loadPatients();
+                  }
+                }}
+                className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-[#E2E8F0] hover:border-[#2563EB]/40 bg-[#F8FAFC] hover:bg-[#F1F5F9] transition-all text-left group cursor-pointer"
+                title="Click to switch patient context or select General Practice"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB] group-hover:bg-[#2563EB] group-hover:text-white transition-colors flex-shrink-0">
+                  <Stethoscope className="w-4 h-4" />
+                </div>
 
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-900">
-                    {activePatient ? activePatient.display_name : 'General Practice Copilot'}
-                  </span>
-                  {activePatient && (
-                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
-                      {activePatient.llm_alias}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-900 group-hover:text-[#2563EB] transition-colors truncate max-w-[200px]">
+                      {activePatient ? activePatient.display_name : 'General Practice Copilot'}
                     </span>
-                  )}
+                    {activePatient && (
+                      <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] flex-shrink-0">
+                        {activePatient.llm_alias}
+                      </span>
+                    )}
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform ${isPatientDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                  <div className="text-[11px] text-slate-500 truncate max-w-[260px]">
+                    {activePatient
+                      ? `${activePatient.gender || 'Patient'} • DOB: ${activePatient.date_of_birth || 'Not recorded'} • AES-256 Scoped`
+                      : 'Global Practice Schedule & Dashboard Context'}
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-500">
-                  {activePatient
-                    ? `${activePatient.gender || 'Patient'} • DOB: ${activePatient.date_of_birth || 'Not recorded'} • AES-256 Grounded`
-                    : "Real-time Practice Context • Temporal Schedule Grounded"}
+              </button>
+
+              {/* Patient Dropdown Menu */}
+              {isPatientDropdownOpen && (
+                <div className="absolute top-full left-0 mt-2 w-84 bg-white rounded-xl shadow-xl border border-[#E2E8F0] py-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-3 pb-2 border-b border-[#F1F5F9]">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-800 mb-1.5">
+                      <span>Select Copilot Context</span>
+                      <span className="text-[10px] font-normal text-slate-400">Scoped to chart</span>
+                    </div>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={patientSearchQuery}
+                        onChange={(e) => setPatientSearchQuery(e.target.value)}
+                        placeholder="Search patient name, alias, DOB..."
+                        className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] focus:outline-none focus:border-[#2563EB] text-slate-800 placeholder-slate-400"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto py-1">
+                    {/* General Practice (No Patient) Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectPatient?.(null);
+                        setIsPatientDropdownOpen(false);
+                      }}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#F8FAFC] transition-colors text-left cursor-pointer ${!activePatient ? 'bg-blue-50/70 border-l-2 border-[#2563EB]' : ''}`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-slate-600 flex-shrink-0">
+                          <Bot className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-slate-900">General Practice Copilot</div>
+                          <div className="text-[10px] text-slate-500">Unscoped practice & schedule intelligence</div>
+                        </div>
+                      </div>
+                      {!activePatient && <Check className="w-4 h-4 text-[#2563EB] flex-shrink-0" />}
+                    </button>
+
+                    <div className="h-[1px] bg-[#F1F5F9] my-1" />
+
+                    {/* Filtered Patient List */}
+                    {filteredPatients.length === 0 ? (
+                      <div className="px-4 py-3 text-center text-xs text-slate-400">
+                        No matching patients found
+                      </div>
+                    ) : (
+                      filteredPatients.map((p) => {
+                        const isSelected = activePatient?.id === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => {
+                              onSelectPatient?.(p);
+                              setIsPatientDropdownOpen(false);
+                            }}
+                            className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#F8FAFC] transition-colors text-left cursor-pointer ${isSelected ? 'bg-blue-50/70 border-l-2 border-[#2563EB]' : ''}`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-[#EFF6FF] border border-[#BFDBFE] flex items-center justify-center text-[#2563EB] flex-shrink-0">
+                                <User className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0 truncate">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-slate-900 truncate">
+                                    {p.display_name}
+                                  </span>
+                                  <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE]">
+                                    {p.llm_alias}
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 truncate">
+                                  {p.gender ? `${p.gender} • ` : ''}DOB: {p.date_of_birth || 'Not recorded'}
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-4 h-4 text-[#2563EB] flex-shrink-0 ml-2" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="pt-1.5 px-3 border-t border-[#F1F5F9] flex justify-between items-center text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPatientDropdownOpen(false);
+                        onNavigate?.('patients');
+                      }}
+                      className="text-[#2563EB] hover:underline font-semibold cursor-pointer"
+                    >
+                      Open Patient Directory →
+                    </button>
+                    <span className="text-slate-400 text-[10px]">{patients.length} registered</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 

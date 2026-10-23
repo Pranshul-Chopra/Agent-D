@@ -60,7 +60,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,   # UPX disabled to prevent CI timeouts & C-extension DLL compression freezes
     console=False,    # Headless background service (no console window)
 )
 
@@ -69,7 +69,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,   # UPX disabled to ensure fast, deterministic bundling in CI
     upx_exclude=[],
     name='flask',     # Output folder: dist/flask/
 )

@@ -6,22 +6,70 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [0.3.0] — 2026-10-22
+## [0.4.0] — 2026-10-23
 
-### Smooth One-Click Setup & Hardened Workbench (Current Release)
+### In-View Patient Scoping, Dynamic Context Sync & CI/CD Pipeline Hardening (Current Release)
 
 #### Added
+- **In-View Patient Scoping in Copilot (`ChatView.tsx`):**
+  - Interactive patient context selector dropdown located directly in the Copilot header.
+  - Physicians can toggle between "🌐 General Practice Copilot (No patient scoped)" (for cross-patient triage, daily appointments review, and practice-wide clinical questions) and specific patient charts (`PT-XXXX`).
+  - Search filter supporting instant matching by patient name, cryptographic `llm_alias`, or date of birth, with direct navigation to the full Patient Directory.
+  - Automatically scopes active chat sessions, previous consultation conversations, and live prompt injection to the selected chart.
+- **Dedicated Patient Chart Selector Grid & In-Header Switcher (`DocsView.tsx`):**
+  - Replaced static empty-state with a dedicated Patient Chart Selector grid featuring instant search, demographic summaries, active badges, and one-click chart opening.
+  - Added an in-header `[ Switch Chart ▾ ]` quick-picker dropdown directly in the Artifacts Studio header bar, allowing doctors to quickly switch between patient context artifacts or return to the chart grid without navigating away.
+- **Real-Time Dynamic Context Synchronization:**
+  - Dynamic per-turn prompt injection in `clinical_chat.py` querying live SQLite artifacts, recent vitals, open tickets, and today's schedule on every chat message.
+  - Atomic SQLite initialization of Medical Context Artifact (v1 snapshot) upon registering a new patient.
+  - Cross-view reactive updates ensuring new patients appear immediately in Copilot and Artifact switchers.
+
+#### Changed
+- **Decoupled Titlebar Architecture (`Titlebar.tsx`):**
+  - Removed global patient dropdown from `Titlebar`, keeping the native window header focused on workstation identity (`Agent-D v0.4.0`), active view breadcrumbs, the Command Palette trigger (`Ctrl+K`), and local security vault status.
+- **Clinical Dashboard Re-Alignment (`HomeView.tsx`):**
+  - Promoted the Interactive Clinical Calendar & Agenda widget directly beneath the 4 quick metric cards for immediate daily mapping.
+  - Positioned the AI Clinical Chief of Staff / Next Patient Pre-Visit Brief suggestion card below the calendar for logical daily context mapping.
+- **Bumped Application Version to `0.4.0`:**
+  - Synchronously bumped across `version.json`, `electron/package.json`, `electron/package-lock.json`, `routes.py`, `build.bat`, `Titlebar.tsx`, `App.tsx`, `Sidebar.tsx`, `CommandPalette.tsx`, `SettingsView.tsx`, and documentation manifests.
+
+#### Fixed
+- **CI/CD Build Timeouts & PyInstaller Freezes (`.github/workflows/release.yml`, `flask.spec`):**
+  - Disabled PyInstaller UPX compression (`upx=False`) in `flask.spec`, eliminating the primary cause of Windows runner hangs and DLL compression deadlocks on GitHub Actions.
+  - Added an explicit `timeout-minutes: 25` to the GitHub Actions release workflow to prevent runaway jobs.
+  - Upgraded release publishing to use `softprops/action-gh-release@v2` with offline `electron-builder --publish never`, providing robust, atomic asset uploading (`.exe`, `.blockmap`, `latest.yml`) without token rate-limiting or release collision errors.
+  - Added `test_m6_actions.py` to the automated regression test gate to guarantee 100% test coverage across all 18 milestone tests before freezing and publishing binaries.
+  - Added an explicit post-freeze step syncing compiled React SPA assets into `dist/flask/_internal/static/spa/`.
+
+---
+
+## [0.3.0] — 2026-10-23
+
+### Smooth One-Click Setup, Engine Setup Guides & Hardened Workbench (Current Release)
+
+#### Added
+- **AI Engine Setup Guide & Deployment Trade-offs Panel (`SettingsView.tsx`):**
+  - Interactive 4-quadrant reference panel in Settings replacing the static identity card.
+  - Step-by-step instructions to acquire Google Gemini API keys via Google AI Studio with zero billing requirements and multi-key rotation advice.
+  - Step-by-step instructions to host and run local Ollama models (`ollama run llama3.2`) on loopback `127.0.0.1:11434` with one-click service probing.
+  - Clinical and architectural trade-offs matrix comparing Gemini Cloud (high diagnostic nuance, zero workstation GPU/RAM consumption, Zero Cloud PII alias perimeter) versus Local Offline Ollama (100% air-gapped physical data sovereignty, zero network traffic, dedicated GPU VRAM hardware requirements).
 - **Smooth One-Click Windows Setup (`electron/package.json`):**
-  - Configured `oneClick: true`, removing manual directory selection and finish wizard screens.
-  - Automatic silent installation to user AppData, instant desktop and Start menu shortcut creation, and immediate launch.
-- **Strict TypeScript Hardening:**
-  - Resolved `Calendar` icon reference in Command Palette.
-  - Aligned Titlebar, ActionCard, and Consultations view types with zero TypeScript compiler errors.
-- **Official Landing Page Repository (`Agent-D_LandingPage`):**
-  - Standalone Next.js marketing landing page adapted from PranshulOS template and styled in Agent-D's clinical white and royal blue theme.
+  - Configured `oneClick: true` and `allowToChangeInstallationDirectory: false` matching the streamlined PranshulOS setup experience.
+  - Eliminates manual directory selection and finish wizard dialogs, installing silently to user AppData, auto-creating desktop and Start menu shortcuts, and launching immediately.
+- **Strict TypeScript & Runtime Hardening:**
+  - Resolved missing `Calendar` icon import in `CommandPalette.tsx`, preventing runtime ReferenceError on palette launch.
+  - Added missing `consultations` tab title mapping to `Titlebar.tsx`.
+  - Corrected parameter signature in `ActionCard.tsx` for direct artifact patching.
+  - Aligned observation logging call in `ConsultationsView.tsx` to `AppBridge.api.createPatientLog`.
+  - Verified clean TypeScript compilation with zero errors via `tsc --noEmit`.
+- **Official Vercel-Ready Landing Page (`Agent-D_LandingPage`):**
+  - Standalone Next.js 14 App Router project styled with Agent-D's clinical white (`#FFFFFF`) and hospital-grade royal blue (`#2563EB`) design system.
+  - Pre-configured `vercel.json` with security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, strict referrer policy) and long-lived asset caching.
+  - Positioned truthfully as a clinic doctor contextual platform promising only verified shipped capabilities.
 
 #### Changed
 - Bumped application version to `0.3.0` across all backend, frontend, build scripts, and documentation manifests.
+- Packaged production release artifacts in `release/`: `Agent-D-Setup-0.3.0.exe`, `Agent-D-Portable-0.3.0.exe`, and `latest.yml`.
 
 ---
 

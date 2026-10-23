@@ -186,11 +186,9 @@ export const App: React.FC = () => {
       {/* Native Drag Titlebar */}
       <Titlebar
         activeTab={activeTab}
-        activePatient={activePatient}
-        version={updateData.version || '0.3.0'}
+        version={updateData.version || '0.4.0'}
         onOpenPalette={() => setIsPaletteOpen(true)}
         onOpenWhatsNew={handleOpenWhatsNew}
-        onOpenPatientDirectory={() => navigateWithTransition('patients')}
       />
 
       {/* Main Workstation Container */}
@@ -228,13 +226,21 @@ export const App: React.FC = () => {
                 activePatient={activePatient}
               />
             )}
-            {activeTab === 'documents' && <DocsView activePatient={activePatient} />}
+            {activeTab === 'documents' && (
+              <DocsView
+                activePatient={activePatient}
+                onSelectPatient={(p) => setActivePatient(p)}
+                onNavigate={handleNavigate}
+              />
+            )}
             {activeTab === 'chat' && (
               <ChatView
                 inheritedTab={previousTab}
                 initialProjectId={selectedProjectId}
                 onClearInheritedTab={() => setPreviousTab(null)}
                 activePatient={activePatient}
+                onSelectPatient={(p) => setActivePatient(p)}
+                onNavigate={handleNavigate}
               />
             )}
             {activeTab === 'settings' && (
