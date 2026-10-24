@@ -20,7 +20,7 @@ const tabTitles: Record<string, string> = {
 
 export const Titlebar: React.FC<TitlebarProps> = ({
   activeTab,
-  version = '0.5.0',
+  version = '0.5.1',
   onOpenPalette,
   onOpenWhatsNew,
 }) => {

@@ -93,7 +93,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded bg-slate-100 border border-[#E2E8F0] text-slate-700">
-              v{versionInfo?.version || '0.5.0'}
+              v{versionInfo?.version || '0.5.1'}
             </span>
           </div>
         </div>
@@ -255,7 +255,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <div>
                 <h2 className="text-sm font-bold text-slate-900">Workstation Release &amp; Changelog</h2>
-                <p className="text-xs text-slate-500">Agent-D v{versionInfo?.version || '0.5.0'} release package.</p>
+                <p className="text-xs text-slate-500">Agent-D v{versionInfo?.version || '0.5.1'} release package.</p>
               </div>
             </div>
 

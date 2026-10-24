@@ -413,7 +413,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-slate-500">
             <span className="text-blue-600 font-semibold">Agent-D</span>
-            <span>v0.5.0</span>
+            <span>v0.5.1</span>
           </div>
         </div>
       </div>

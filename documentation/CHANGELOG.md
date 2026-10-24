@@ -6,9 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [0.5.1] — 2026-10-24
+
+### Legal Demo Governance & Patient Privacy Guardrails (Current Release)
+
+#### Added
+- **Always-Visible Top Compliance Demo Banner (`App.tsx`):**
+  - Positioned persistently at the top of every workstation screen immediately beneath the titlebar, spanning all clinical views (Dashboard, Patients, Encounters, Living Artifacts, Kanban Board, Settings).
+  - Primary warning line: *"Demo version: pending legal review. Do not enter real patient information."*
+  - Secondary reason line: *"Real-patient use will be enabled only after the clinic’s legal review is complete."*
+  - Styled with high-contrast amber surface (`bg-amber-50`), crisp border (`border-amber-200`), dark amber typography (`text-amber-900`), and `AlertTriangle` clinical indicator.
+- **First-Launch Demonstration Acknowledgment Dialog (`DemoAcknowledgmentModal.tsx`):**
+  - A mandatory, one-time modal that automatically gates access on first workstation launch.
+  - Displays explicit demonstration notice: *"This software is for demonstration and testing. It has not been reviewed for use with real patient records. Please use invented patients only."*
+  - Features prominent `[ I understand ]` action button.
+  - Persists acknowledgment status to `localStorage` (`agent_d_demo_ack_v0.5.1`) to avoid interrupting subsequent daily workflows once accepted.
+
+#### Changed
+- Bumped application version to `0.5.1` across `version.json`, `electron/package.json`, `routes.py`, `Titlebar.tsx`, `App.tsx`, `CommandPalette.tsx`, `SettingsView.tsx`, and `whatsNewData.ts`.
+
+---
+
 ## [0.5.0] — 2026-10-23
 
-### Pure Deterministic Clinical Workstation: Complete AI Removal, Cryptographic Vault & Zero Network Egress (Current Release)
+### Pure Deterministic Clinical Workstation: Complete AI Removal, Cryptographic Vault & Zero Network Egress (Previous Release)
 
 #### Strategic Architecture & Legal Decisions
 - **Executive Summary:** Transitioned Agent-D from a conversational AI copilot into a 100% deterministic, privacy-first local clinical desktop workstation for attending physicians. All generative AI models, cloud LLMs, local neural weights, Copilot chat, and prompt injection pipelines have been completely excised from the runtime.

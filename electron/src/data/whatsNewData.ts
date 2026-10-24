@@ -25,10 +25,48 @@ export interface WhatsNewRelease {
 
 export const WHATS_NEW_RELEASES: WhatsNewRelease[] = [
   {
+    version: '0.5.1',
+    codename: 'Demo Governance & Compliance',
+    date: 'October 2026',
+    isLatest: true,
+    title: 'Clinical Demo Safeguards: Persistent Top-of-Screen Banner & First-Launch Acknowledgment',
+    summary:
+      'Agent-D v0.5.1 establishes mandatory pre-clinical demo guardrails pending legal review. A permanent top-of-screen amber warning banner advises physicians against entering real patient data, paired with a one-time first-launch acknowledgment dialog gating workstation access.',
+    highlights: [
+      {
+        id: 'main-demo-banner',
+        icon: 'shield',
+        title: 'Always-Visible Top Screen Banner',
+        tag: 'Compliance',
+        description:
+          'Prominent persistent banner at the top of every workstation screen: "Demo version: pending legal review. Do not enter real patient information" with reason explanation.',
+      },
+      {
+        id: 'first-launch-ack',
+        icon: 'sparkles',
+        title: 'First-Launch Acknowledgment Dialog',
+        tag: 'Safety Gate',
+        description:
+          'One-time acknowledgment modal requiring physician confirmation ("This software is for demonstration and testing. Please use invented patients only") before initial use.',
+      },
+    ],
+    sections: [
+      {
+        title: 'Clinical Safety & Demo Governance',
+        type: 'feature',
+        items: [
+          'Added permanent full-width top banner across all views reminding users that real-patient use is restricted until formal clinic legal review concludes.',
+          'Implemented one-time demonstration acknowledgment modal with [I understand] confirmation gating.',
+          'Bumped version to 0.5.1 across all application runtime descriptors.',
+        ],
+      },
+    ],
+  },
+  {
     version: '0.5.0',
     codename: 'Pure Deterministic Workstation',
     date: 'October 2026',
-    isLatest: true,
+    isLatest: false,
     title: 'Deterministic Local Architecture: Zero AI, Zero Cloud Egress, Hardware-Bound Storage',
     summary:
       'Agent-D v0.5.0 transitions into a pure deterministic, privacy-first clinical desktop workstation. All generative AI models, cloud LLM providers, and background neural pipelines have been completely removed in favor of 100% physician-directed workflows, deterministic regex clinical extraction, and AES-256-GCM hardware-bound local storage.',

@@ -1,6 +1,6 @@
 # Agent-D — Clinical Desktop Workstation
 
-> **Version:** `0.5.0` (Pure Deterministic Clinical Desktop Workstation Active)  
+> **Version:** `0.5.1` (Pure Deterministic Clinical Desktop Workstation Active)  
 > **Status:** Local-First Deterministic Workstation with Cryptographic Vault, Context Artifacts, Doctor-in-Control Proposal Safety Gate, Encrypted Consultation Lifecycle, and Zero Network Egress
 
 Agent-D is a local-first, privacy-first deterministic clinical desktop workstation designed for attending physicians. It pairs local AES-256-GCM hardware-bound cryptographic data storage with doctor-curated patient context artifacts, encrypted consultation encounter dictation, deterministic regex clinical extraction, and follow-up tracking on a clinical Kanban board. With **zero generative AI models, zero cloud LLMs, and zero network egress**, all clinical data remains strictly on the physician's computer.

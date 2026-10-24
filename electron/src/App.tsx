@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { NavTab, UpdateData, Patient } from './types';
 import Titlebar from './components/Titlebar';
 import Sidebar from './components/Sidebar';
@@ -13,6 +14,7 @@ import ConsultationsView from './views/ConsultationsView';
 import ErrorBoundary from './components/ErrorBoundary';
 import WhatsNewModal from './components/WhatsNewModal';
 import OnboardingModal from './components/onboarding/OnboardingModal';
+import DemoAcknowledgmentModal from './components/DemoAcknowledgmentModal';
 import { LATEST_RELEASE } from './data/whatsNewData';
 import AppBridge from './services/bridge';
 
@@ -25,8 +27,16 @@ export const App: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isWhatsNewOpen, setIsWhatsNewOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isDemoAckOpen, setIsDemoAckOpen] = useState(false);
   const [activePatient, setActivePatient] = useState<Patient | null>(null);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
+
+  const handleAcknowledgeDemo = () => {
+    try {
+      localStorage.setItem('agent_d_demo_ack_v0.5.1', 'true');
+    } catch (_) {}
+    setIsDemoAckOpen(false);
+  };
 
   const handleCloseWhatsNew = () => {
     const currentVersion = updateData.version || LATEST_RELEASE.version;
@@ -100,6 +110,14 @@ export const App: React.FC = () => {
 
       // Automatically check for updates silently on startup
       AppBridge.os.checkForUpdates();
+
+      // Check one-time first-launch demonstration acknowledgment
+      try {
+        const demoAck = localStorage.getItem('agent_d_demo_ack_v0.5.1');
+        if (!demoAck) {
+          setIsDemoAckOpen(true);
+        }
+      } catch (_) {}
 
       // Load initial patient chart from secure local context DB
       AppBridge.api.listPatients().then((res) => {
@@ -185,10 +203,23 @@ export const App: React.FC = () => {
       {/* Native Drag Titlebar */}
       <Titlebar
         activeTab={activeTab}
-        version={updateData.version || '0.5.0'}
+        version={updateData.version || '0.5.1'}
         onOpenPalette={() => setIsPaletteOpen(true)}
         onOpenWhatsNew={handleOpenWhatsNew}
       />
+
+      {/* Main Compliance Demo Banner (always visible, at the top of every screen) */}
+      <div className="bg-amber-50 border-b border-amber-200/90 px-4 py-2 flex items-center justify-center gap-2.5 text-center shrink-0 z-30 select-none shadow-2xs">
+        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+        <div className="flex flex-col items-center justify-center">
+          <span className="text-xs font-semibold text-amber-900 tracking-tight">
+            Demo version: pending legal review. Do not enter real patient information.
+          </span>
+          <span className="text-[11px] text-amber-700 font-normal mt-0.5">
+            Real-patient use will be enabled only after the clinic’s legal review is complete.
+          </span>
+        </div>
+      </div>
 
       {/* Main Workstation Container */}
       <div className="flex-1 flex overflow-hidden min-h-0">
@@ -271,6 +302,12 @@ export const App: React.FC = () => {
         isOpen={isWhatsNewOpen}
         onClose={handleCloseWhatsNew}
         activeVersion={updateData.version || LATEST_RELEASE.version}
+      />
+
+      {/* First-Launch Demonstration Acknowledgment Modal */}
+      <DemoAcknowledgmentModal
+        isOpen={isDemoAckOpen}
+        onAcknowledge={handleAcknowledgeDemo}
       />
 
       {/* In-App Background Auto-Updater Toast */}
